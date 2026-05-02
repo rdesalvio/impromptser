@@ -1,0 +1,18 @@
+[Unit]
+Description=Impromptser game server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/impromptser
+Environment=NODE_ENV=production
+Environment=PORT=3001
+ExecStart=/usr/bin/node server/src/index.ts
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

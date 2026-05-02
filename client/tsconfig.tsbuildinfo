@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/socket.ts","./src/components/Timer.tsx","./src/screens/Answering.tsx","./src/screens/ImposterAnswering.tsx","./src/screens/Landing.tsx","./src/screens/Lobby.tsx","./src/screens/Results.tsx","./src/screens/Voting.tsx","../shared/types.ts"],"version":"5.9.3"}
