@@ -911,7 +911,15 @@ export class Flip7Room extends RoomBase {
   private continueFlipThreeSequence() {
     if (!this.round?.flipThree) return;
     this.round.flipThree.remaining -= 1;
-    if (this.round.flipThree.remaining <= 0) {
+    const targetId = this.round.flipThree.targetId;
+    const targetHand = this.round.hands.get(targetId);
+    const targetCanContinue = targetHand?.status === "ACTIVE";
+    if (this.round.flipThree.remaining <= 0 || !targetCanContinue) {
+      if (!targetCanContinue && this.round.flipThree.remaining > 0) {
+        this.logEvent(
+          `Flip Three on ${this.nameOf(targetId)} ends — they are no longer active`
+        );
+      }
       this.round.flipThree = undefined;
       if (this.round.initialDealIndex !== undefined) {
         this.advanceInitialDeal();

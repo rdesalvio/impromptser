@@ -42,7 +42,7 @@ console.log(`Round started. Awaiting kind=${host.latest.flip7Round.awaiting.kind
 // Wait for awaiting state to change (server processed our last input) before acting again.
 let lastActedKey = null;
 let safetyHits = 0;
-const safetyMax = 400;
+const safetyMax = 800;
 while (host.latest.phase !== "GAME_OVER" && safetyHits < safetyMax) {
   safetyHits++;
   await wait(60);
