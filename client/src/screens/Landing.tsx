@@ -24,6 +24,11 @@ const GAMES: { id: GameType; name: string; tagline: string }[] = [
     name: "Flip 7",
     tagline: "Press your luck — collect 7 unique numbers, but don't bust.",
   },
+  {
+    id: "teeko",
+    name: "Tee K.O.",
+    tagline: "Doodle logos, write slogans, vote the best t-shirt.",
+  },
 ];
 
 export function Landing({

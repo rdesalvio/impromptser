@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import {
   ANSWER_SECONDS,
   DISCUSS_SECONDS,
@@ -11,17 +12,33 @@ import {
   IMPOSTER_ANSWER_SECONDS,
   MAX_ANSWER_LEN,
   MAX_CHAT_LEN,
+  MAX_DRAWING_POINTS,
+  MAX_DRAWING_STROKES,
   MAX_NAME_LEN,
   MAX_PLAYERS,
+  MAX_SLOGAN_LEN,
   MIN_PLAYERS_FLIP7,
   MIN_PLAYERS_IMPOSTER,
   MIN_PLAYERS_SPYFALL,
+  MIN_PLAYERS_TEEKO,
   RESULTS_SECONDS,
   REVEAL_SECONDS,
+  TEEKO_BYE_REVEAL_SECONDS,
+  TEEKO_COMPOSING_SECONDS,
+  TEEKO_DRAWING_SECONDS,
+  TEEKO_DRAWING_TARGET,
+  TEEKO_HAND_DRAWINGS,
+  TEEKO_HAND_SLOGANS,
+  TEEKO_MATCHUP_REVEAL_SECONDS,
+  TEEKO_MATCHUP_VOTE_SECONDS,
+  TEEKO_SHIRTS_PER_PLAYER,
+  TEEKO_SLOGAN_TARGET,
+  TEEKO_WRITING_SECONDS,
   VOTING_SECONDS,
 } from "../../shared/types.ts";
 import type {
   ChatMsg,
+  DrawingStroke,
   Flip7Awaiting,
   Flip7Card,
   Flip7Event,
@@ -36,6 +53,9 @@ import type {
   RoomCode,
   RoomStatePublic,
   SpyfallRoundPublic,
+  TeekoMatchupPublic,
+  TeekoRoundPublic,
+  TeekoShirtPublic,
 } from "../../shared/types.ts";
 import { pickRandomPrompt } from "./prompts.ts";
 import { ALL_LOCATION_NAMES, pickRandomLocation } from "./locations.ts";
@@ -187,7 +207,7 @@ export abstract class RoomBase {
 
   protected baseStateFor(
     viewerId: PlayerId
-  ): Omit<RoomStatePublic, "imposterRound" | "spyfallRound"> {
+  ): Omit<RoomStatePublic, "imposterRound" | "spyfallRound" | "flip7Round" | "teekoRound" | "flip7TargetScore"> {
     const players = [...this.players.values()].map((p) => ({ ...p }));
     return {
       code: this.code,
@@ -1183,6 +1203,539 @@ export class Flip7Room extends RoomBase {
   }
 }
 
+// ---------------- Tee K.O. ----------------
+
+interface TeekoDrawing {
+  id: string;
+  authorId: PlayerId;
+  strokes: DrawingStroke[];
+}
+
+interface TeekoSlogan {
+  id: string;
+  authorId: PlayerId;
+  text: string;
+}
+
+interface TeekoShirt {
+  id: string;
+  composerId: PlayerId;
+  drawingId: string;
+  sloganId: string;
+}
+
+interface TeekoMatchup {
+  byeShirtId?: string;
+  leftShirtId?: string;
+  rightShirtId?: string;
+  votes: Map<PlayerId, "LEFT" | "RIGHT">;
+  leftCount: number;
+  rightCount: number;
+  revealed: boolean;
+  winner?: "LEFT" | "RIGHT";
+}
+
+interface TeekoBracketRound {
+  matchups: TeekoMatchup[];
+  currentIndex: number;
+}
+
+interface TeekoRound {
+  drawings: Map<string, TeekoDrawing>;
+  slogans: Map<string, TeekoSlogan>;
+  drawingsByPlayer: Map<PlayerId, string[]>;
+  slogansByPlayer: Map<PlayerId, string[]>;
+  hands: Map<PlayerId, { drawingIds: string[]; sloganIds: string[] }>;
+  shirts: Map<string, TeekoShirt>;
+  shirtsByPlayer: Map<PlayerId, string[]>;
+  bracket?: { rounds: TeekoBracketRound[]; currentRoundIndex: number; totalRounds: number };
+  champion?: { shirtId: string };
+  phaseEndsAt: number;
+}
+
+function sanitizeStrokes(input: unknown): DrawingStroke[] | null {
+  if (!Array.isArray(input)) return null;
+  if (input.length > MAX_DRAWING_STROKES) return null;
+  let totalPoints = 0;
+  const out: DrawingStroke[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== "object") return null;
+    const s = raw as Partial<DrawingStroke>;
+    if (typeof s.color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(s.color)) return null;
+    if (typeof s.width !== "number" || s.width <= 0 || s.width > 50) return null;
+    if (!Array.isArray(s.points) || s.points.length === 0) return null;
+    totalPoints += s.points.length;
+    if (totalPoints > MAX_DRAWING_POINTS) return null;
+    const points: { x: number; y: number }[] = [];
+    for (const p of s.points) {
+      if (!p || typeof p !== "object") return null;
+      const x = (p as { x?: number }).x;
+      const y = (p as { y?: number }).y;
+      if (typeof x !== "number" || typeof y !== "number") return null;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      points.push({ x, y });
+    }
+    out.push({ color: s.color, width: s.width, points });
+  }
+  return out;
+}
+
+function pickRandomFrom<T>(pool: T[], count: number): T[] {
+  if (pool.length === 0) return [];
+  const out: T[] = [];
+  if (pool.length >= count) {
+    // Sample without replacement.
+    const copy = pool.slice();
+    shuffleInPlace(copy);
+    return copy.slice(0, count);
+  }
+  // With replacement when pool too small.
+  for (let i = 0; i < count; i++) {
+    out.push(pool[Math.floor(Math.random() * pool.length)]);
+  }
+  return out;
+}
+
+export class TeekoRoom extends RoomBase {
+  readonly gameType = "teeko" as const;
+  readonly minPlayers = MIN_PLAYERS_TEEKO;
+  round?: TeekoRound;
+
+  startGame(by: PlayerId): { ok: boolean; error?: string } {
+    if (by !== this.hostId) return { ok: false, error: "Only the host can start" };
+    if (this.phase !== "LOBBY") return { ok: false, error: "Game already started" };
+    const connected = [...this.players.values()].filter((p) => p.connected);
+    if (connected.length < this.minPlayers) {
+      return { ok: false, error: `Need at least ${this.minPlayers} players` };
+    }
+    this.round = {
+      drawings: new Map(),
+      slogans: new Map(),
+      drawingsByPlayer: new Map(),
+      slogansByPlayer: new Map(),
+      hands: new Map(),
+      shirts: new Map(),
+      shirtsByPlayer: new Map(),
+      phaseEndsAt: Date.now() + TEEKO_DRAWING_SECONDS * 1000,
+    };
+    this.setPhase("DRAWING", TEEKO_DRAWING_SECONDS, () => this.endDrawingPhase());
+    return { ok: true };
+  }
+
+  submitDrawing(playerId: PlayerId, strokesInput: unknown): { ok: boolean; error?: string } {
+    if (!this.round) return { ok: false, error: "No active round" };
+    if (this.phase !== "DRAWING") return { ok: false, error: "Not the drawing phase" };
+    if (!this.players.has(playerId)) return { ok: false, error: "Not in this room" };
+    const strokes = sanitizeStrokes(strokesInput);
+    if (!strokes || strokes.length === 0) return { ok: false, error: "Invalid drawing" };
+    const id = randomUUID();
+    this.round.drawings.set(id, { id, authorId: playerId, strokes });
+    const list = this.round.drawingsByPlayer.get(playerId) ?? [];
+    list.push(id);
+    this.round.drawingsByPlayer.set(playerId, list);
+    this.emitChange();
+    return { ok: true };
+  }
+
+  submitSlogan(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
+    if (!this.round) return { ok: false, error: "No active round" };
+    if (this.phase !== "WRITING") return { ok: false, error: "Not the writing phase" };
+    if (!this.players.has(playerId)) return { ok: false, error: "Not in this room" };
+    const trimmed = sanitizeText(text, MAX_SLOGAN_LEN).trim();
+    if (!trimmed) return { ok: false, error: "Slogan cannot be empty" };
+    const id = randomUUID();
+    this.round.slogans.set(id, { id, authorId: playerId, text: trimmed });
+    const list = this.round.slogansByPlayer.get(playerId) ?? [];
+    list.push(id);
+    this.round.slogansByPlayer.set(playerId, list);
+    this.emitChange();
+    return { ok: true };
+  }
+
+  submitShirts(
+    playerId: PlayerId,
+    shirts: { drawingId: string; sloganId: string }[]
+  ): { ok: boolean; error?: string } {
+    if (!this.round) return { ok: false, error: "No active round" };
+    if (this.phase !== "COMPOSING") return { ok: false, error: "Not the composing phase" };
+    const hand = this.round.hands.get(playerId);
+    if (!hand) return { ok: false, error: "You're not composing this round" };
+    if (this.round.shirtsByPlayer.has(playerId)) {
+      return { ok: false, error: "Already submitted" };
+    }
+    if (!Array.isArray(shirts) || shirts.length === 0 || shirts.length > TEEKO_SHIRTS_PER_PLAYER) {
+      return { ok: false, error: "Invalid shirts payload" };
+    }
+    const usedDrawings = new Set<string>();
+    const usedSlogans = new Set<string>();
+    for (const s of shirts) {
+      if (!s || typeof s.drawingId !== "string" || typeof s.sloganId !== "string") {
+        return { ok: false, error: "Invalid shirt entry" };
+      }
+      if (!hand.drawingIds.includes(s.drawingId)) return { ok: false, error: "Drawing not in your hand" };
+      if (!hand.sloganIds.includes(s.sloganId)) return { ok: false, error: "Slogan not in your hand" };
+      if (usedDrawings.has(s.drawingId)) return { ok: false, error: "Drawing used twice" };
+      if (usedSlogans.has(s.sloganId)) return { ok: false, error: "Slogan used twice" };
+      usedDrawings.add(s.drawingId);
+      usedSlogans.add(s.sloganId);
+    }
+    const created: string[] = [];
+    for (const s of shirts) {
+      const id = randomUUID();
+      this.round.shirts.set(id, { id, composerId: playerId, drawingId: s.drawingId, sloganId: s.sloganId });
+      created.push(id);
+    }
+    this.round.shirtsByPlayer.set(playerId, created);
+    this.emitChange();
+    // Advance early if every composer has submitted.
+    const composers = [...this.round.hands.keys()];
+    if (composers.every((id) => this.round!.shirtsByPlayer.has(id))) {
+      this.endComposingPhase();
+    }
+    return { ok: true };
+  }
+
+  vote(playerId: PlayerId, side: "LEFT" | "RIGHT"): { ok: boolean; error?: string } {
+    if (!this.round?.bracket) return { ok: false, error: "No bracket" };
+    if (this.phase !== "BRACKET") return { ok: false, error: "Not voting right now" };
+    if (!this.players.has(playerId)) return { ok: false, error: "Not in this room" };
+    const matchup = this.currentMatchup();
+    if (!matchup || matchup.revealed || matchup.byeShirtId) {
+      return { ok: false, error: "Not voting on this matchup" };
+    }
+    const prev = matchup.votes.get(playerId);
+    if (prev === side) return { ok: true };
+    if (prev === "LEFT") matchup.leftCount--;
+    else if (prev === "RIGHT") matchup.rightCount--;
+    matchup.votes.set(playerId, side);
+    if (side === "LEFT") matchup.leftCount++;
+    else matchup.rightCount++;
+    this.emitChange();
+    // Reveal early if all connected players voted.
+    const connected = [...this.players.values()].filter((p) => p.connected);
+    if (matchup.votes.size >= connected.length) this.revealCurrentMatchup();
+    return { ok: true };
+  }
+
+  nextGame(by: PlayerId): { ok: boolean; error?: string } {
+    if (by !== this.hostId) return { ok: false, error: "Only the host can reset" };
+    if (this.phase !== "CHAMPION") return { ok: false, error: "Game still in progress" };
+    this.round = undefined;
+    this.phase = "LOBBY";
+    this.clearTimer();
+    this.emitChange();
+    return { ok: true };
+  }
+
+  // ----- phase transitions -----
+
+  private endDrawingPhase() {
+    if (!this.round || this.phase !== "DRAWING") return;
+    this.round.phaseEndsAt = Date.now() + TEEKO_WRITING_SECONDS * 1000;
+    this.setPhase("WRITING", TEEKO_WRITING_SECONDS, () => this.endWritingPhase());
+  }
+
+  private endWritingPhase() {
+    if (!this.round || this.phase !== "WRITING") return;
+    if (this.round.drawings.size === 0 || this.round.slogans.size === 0) {
+      // Nothing to compose with — bail.
+      this.round = undefined;
+      this.phase = "LOBBY";
+      this.clearTimer();
+      this.emitChange();
+      return;
+    }
+    this.dealHands();
+    this.round.phaseEndsAt = Date.now() + TEEKO_COMPOSING_SECONDS * 1000;
+    this.setPhase("COMPOSING", TEEKO_COMPOSING_SECONDS, () => this.endComposingPhase());
+  }
+
+  private dealHands() {
+    if (!this.round) return;
+    const allDrawingIds = [...this.round.drawings.keys()];
+    const allSloganIds = [...this.round.slogans.keys()];
+    const composers = [...this.players.values()].filter(
+      (p) => p.connected && (this.round!.drawingsByPlayer.get(p.id)?.length ?? 0) > 0
+    );
+    for (const composer of composers) {
+      // Prefer dealing items NOT authored by the composer; fall back to all if needed.
+      const ownDrawings = new Set(this.round.drawingsByPlayer.get(composer.id) ?? []);
+      const ownSlogans = new Set(this.round.slogansByPlayer.get(composer.id) ?? []);
+      const otherDrawings = allDrawingIds.filter((id) => !ownDrawings.has(id));
+      const otherSlogans = allSloganIds.filter((id) => !ownSlogans.has(id));
+      const drawingPool = otherDrawings.length >= TEEKO_HAND_DRAWINGS ? otherDrawings : allDrawingIds;
+      const sloganPool = otherSlogans.length >= TEEKO_HAND_SLOGANS ? otherSlogans : allSloganIds;
+      this.round.hands.set(composer.id, {
+        drawingIds: pickRandomFrom(drawingPool, TEEKO_HAND_DRAWINGS),
+        sloganIds: pickRandomFrom(sloganPool, TEEKO_HAND_SLOGANS),
+      });
+    }
+  }
+
+  private endComposingPhase() {
+    if (!this.round || this.phase !== "COMPOSING") return;
+    // Auto-fill any composer who hasn't submitted.
+    for (const [composerId, hand] of this.round.hands) {
+      if (this.round.shirtsByPlayer.has(composerId)) continue;
+      if (hand.drawingIds.length === 0 || hand.sloganIds.length === 0) continue;
+      const created: string[] = [];
+      const id1 = randomUUID();
+      this.round.shirts.set(id1, {
+        id: id1,
+        composerId,
+        drawingId: hand.drawingIds[0],
+        sloganId: hand.sloganIds[0],
+      });
+      created.push(id1);
+      if (hand.drawingIds.length >= 2 && hand.sloganIds.length >= 2) {
+        const id2 = randomUUID();
+        this.round.shirts.set(id2, {
+          id: id2,
+          composerId,
+          drawingId: hand.drawingIds[1],
+          sloganId: hand.sloganIds[1],
+        });
+        created.push(id2);
+      }
+      this.round.shirtsByPlayer.set(composerId, created);
+    }
+    if (this.round.shirts.size === 0) {
+      this.round = undefined;
+      this.phase = "LOBBY";
+      this.clearTimer();
+      this.emitChange();
+      return;
+    }
+    this.buildBracket();
+  }
+
+  private buildBracket() {
+    if (!this.round) return;
+    const shirtIds = [...this.round.shirts.keys()];
+    shuffleInPlace(shirtIds);
+    const matchups = this.pairToMatchups(shirtIds);
+    const totalRounds = Math.max(1, Math.ceil(Math.log2(shirtIds.length)));
+    this.round.bracket = {
+      rounds: [{ matchups, currentIndex: 0 }],
+      currentRoundIndex: 0,
+      totalRounds,
+    };
+    this.phase = "BRACKET";
+    this.startCurrentMatchup();
+  }
+
+  private pairToMatchups(shirtIds: string[]): TeekoMatchup[] {
+    const out: TeekoMatchup[] = [];
+    for (let i = 0; i < shirtIds.length; i += 2) {
+      if (i + 1 < shirtIds.length) {
+        out.push({
+          leftShirtId: shirtIds[i],
+          rightShirtId: shirtIds[i + 1],
+          votes: new Map(),
+          leftCount: 0,
+          rightCount: 0,
+          revealed: false,
+        });
+      } else {
+        out.push({
+          byeShirtId: shirtIds[i],
+          votes: new Map(),
+          leftCount: 0,
+          rightCount: 0,
+          revealed: true,
+        });
+      }
+    }
+    return out;
+  }
+
+  private currentMatchup(): TeekoMatchup | undefined {
+    const b = this.round?.bracket;
+    if (!b) return undefined;
+    const round = b.rounds[b.currentRoundIndex];
+    return round?.matchups[round.currentIndex];
+  }
+
+  private startCurrentMatchup() {
+    if (!this.round?.bracket) return;
+    const matchup = this.currentMatchup();
+    if (!matchup) return;
+    if (matchup.byeShirtId) {
+      this.round.phaseEndsAt = Date.now() + TEEKO_BYE_REVEAL_SECONDS * 1000;
+      this.clearTimer();
+      this.timer = setTimeout(() => this.advanceToNextMatchup(), TEEKO_BYE_REVEAL_SECONDS * 1000);
+      this.emitChange();
+      return;
+    }
+    matchup.revealed = false;
+    matchup.winner = undefined;
+    matchup.votes.clear();
+    matchup.leftCount = 0;
+    matchup.rightCount = 0;
+    this.round.phaseEndsAt = Date.now() + TEEKO_MATCHUP_VOTE_SECONDS * 1000;
+    this.clearTimer();
+    this.timer = setTimeout(() => this.revealCurrentMatchup(), TEEKO_MATCHUP_VOTE_SECONDS * 1000);
+    this.emitChange();
+  }
+
+  private revealCurrentMatchup() {
+    if (!this.round?.bracket) return;
+    const matchup = this.currentMatchup();
+    if (!matchup || matchup.revealed) return;
+    matchup.revealed = true;
+    if (matchup.leftCount === matchup.rightCount) {
+      matchup.winner = Math.random() < 0.5 ? "LEFT" : "RIGHT";
+    } else {
+      matchup.winner = matchup.leftCount > matchup.rightCount ? "LEFT" : "RIGHT";
+    }
+    this.round.phaseEndsAt = Date.now() + TEEKO_MATCHUP_REVEAL_SECONDS * 1000;
+    this.clearTimer();
+    this.timer = setTimeout(
+      () => this.advanceToNextMatchup(),
+      TEEKO_MATCHUP_REVEAL_SECONDS * 1000
+    );
+    this.emitChange();
+  }
+
+  private advanceToNextMatchup() {
+    if (!this.round?.bracket) return;
+    const bracket = this.round.bracket;
+    const round = bracket.rounds[bracket.currentRoundIndex];
+    round.currentIndex++;
+    if (round.currentIndex < round.matchups.length) {
+      this.startCurrentMatchup();
+      return;
+    }
+    // Round done: collect winners and either build next round or crown a champion.
+    const winners: string[] = [];
+    for (const m of round.matchups) {
+      if (m.byeShirtId) {
+        winners.push(m.byeShirtId);
+      } else {
+        const id = m.winner === "LEFT" ? m.leftShirtId : m.rightShirtId;
+        if (id) winners.push(id);
+      }
+    }
+    if (winners.length === 1) {
+      this.crownChampion(winners[0]);
+      return;
+    }
+    bracket.rounds.push({ matchups: this.pairToMatchups(winners), currentIndex: 0 });
+    bracket.currentRoundIndex++;
+    this.startCurrentMatchup();
+  }
+
+  private crownChampion(shirtId: string) {
+    if (!this.round) return;
+    this.round.champion = { shirtId };
+    this.phase = "CHAMPION";
+    this.clearTimer();
+    this.emitChange();
+  }
+
+  // ----- public state -----
+
+  publicStateFor(viewerId: PlayerId): RoomStatePublic {
+    const base = this.baseStateFor(viewerId);
+    let teekoRound: TeekoRoundPublic | undefined;
+    if (this.round) {
+      teekoRound = { phaseEndsAt: this.round.phaseEndsAt };
+      if (this.phase === "DRAWING") {
+        teekoRound.drawing = {
+          mySubmitted: (this.round.drawingsByPlayer.get(viewerId) ?? []).length,
+          target: TEEKO_DRAWING_TARGET,
+        };
+      } else if (this.phase === "WRITING") {
+        const myIds = this.round.slogansByPlayer.get(viewerId) ?? [];
+        teekoRound.writing = {
+          mySubmitted: myIds.length,
+          mySlogans: myIds
+            .map((id) => this.round!.slogans.get(id)?.text)
+            .filter((t): t is string => Boolean(t)),
+          target: TEEKO_SLOGAN_TARGET,
+        };
+      } else if (this.phase === "COMPOSING") {
+        const hand = this.round.hands.get(viewerId);
+        teekoRound.composing = {
+          myHand: hand
+            ? {
+                drawings: hand.drawingIds.map((id) => ({
+                  id,
+                  strokes: this.round!.drawings.get(id)?.strokes ?? [],
+                })),
+                slogans: hand.sloganIds.map((id) => ({
+                  id,
+                  text: this.round!.slogans.get(id)?.text ?? "",
+                })),
+              }
+            : undefined,
+          submitted: this.round.shirtsByPlayer.has(viewerId),
+          progress: {
+            submitted: this.round.shirtsByPlayer.size,
+            total: this.round.hands.size,
+          },
+        };
+      } else if (this.phase === "BRACKET" && this.round.bracket) {
+        const bracket = this.round.bracket;
+        const round = bracket.rounds[bracket.currentRoundIndex];
+        const matchup = round.matchups[round.currentIndex];
+        teekoRound.bracket = {
+          currentRound: bracket.currentRoundIndex + 1,
+          totalRounds: bracket.totalRounds,
+          matchupIndex: round.currentIndex + 1,
+          matchupsInRound: round.matchups.length,
+          matchup: this.publicMatchup(matchup, viewerId),
+        };
+      } else if (this.phase === "CHAMPION" && this.round.champion) {
+        const shirt = this.round.shirts.get(this.round.champion.shirtId);
+        if (shirt) {
+          const drawing = this.round.drawings.get(shirt.drawingId);
+          const slogan = this.round.slogans.get(shirt.sloganId);
+          teekoRound.champion = {
+            shirt: this.publicShirt(shirt.id)!,
+            composerId: shirt.composerId,
+            drawingAuthorId: drawing?.authorId ?? "",
+            sloganAuthorId: slogan?.authorId ?? "",
+          };
+        }
+      }
+    }
+    return { ...base, teekoRound };
+  }
+
+  private publicShirt(shirtId: string): TeekoShirtPublic | undefined {
+    if (!this.round) return undefined;
+    const shirt = this.round.shirts.get(shirtId);
+    if (!shirt) return undefined;
+    const drawing = this.round.drawings.get(shirt.drawingId);
+    const slogan = this.round.slogans.get(shirt.sloganId);
+    if (!drawing || !slogan) return undefined;
+    return {
+      id: shirt.id,
+      drawing: { id: drawing.id, strokes: drawing.strokes },
+      slogan: { id: slogan.id, text: slogan.text },
+    };
+  }
+
+  private publicMatchup(m: TeekoMatchup, viewerId: PlayerId): TeekoMatchupPublic {
+    if (m.byeShirtId) {
+      return {
+        byeShirt: this.publicShirt(m.byeShirtId),
+        revealed: true,
+      };
+    }
+    return {
+      leftShirt: m.leftShirtId ? this.publicShirt(m.leftShirtId) : undefined,
+      rightShirt: m.rightShirtId ? this.publicShirt(m.rightShirtId) : undefined,
+      myVote: m.votes.get(viewerId),
+      revealed: m.revealed,
+      leftVotes: m.revealed ? m.leftCount : undefined,
+      rightVotes: m.revealed ? m.rightCount : undefined,
+      winner: m.winner,
+    };
+  }
+}
+
 export class RoomStore {
   private rooms = new Map<RoomCode, RoomBase>();
 
@@ -1193,7 +1746,9 @@ export class RoomStore {
         ? new SpyfallRoom(code, hostId)
         : gameType === "flip7"
           ? new Flip7Room(code, hostId)
-          : new ImposterRoom(code, hostId);
+          : gameType === "teeko"
+            ? new TeekoRoom(code, hostId)
+            : new ImposterRoom(code, hostId);
     this.rooms.set(code, room);
     return room;
   }

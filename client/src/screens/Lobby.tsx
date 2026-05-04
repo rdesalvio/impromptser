@@ -118,10 +118,42 @@ export function Lobby({
               ? "Spyfall"
               : state.gameType === "flip7"
                 ? "Flip 7"
-                : "Impromptser"}
+                : state.gameType === "teeko"
+                  ? "Tee K.O."
+                  : "Impromptser"}
           </div>
         </div>
-        {state.gameType === "flip7" ? (
+        {state.gameType === "teeko" ? (
+          <ol className="flex flex-col gap-2 text-sm text-ink/70">
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">1.</span>
+              <span>
+                Period 1: <span className="font-semibold">draw logos</span>
+                {" "}— 90s to make as many as you can (target: 2).
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">2.</span>
+              <span>
+                Period 2: <span className="font-semibold">write slogans</span>
+                {" "}— 90s to write as many as you can (target: 4).
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">3.</span>
+              <span>
+                Build 2 t-shirts from a random hand of others' drawings + slogans.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">4.</span>
+              <span>
+                Single-elimination bracket: shirts go head-to-head, the room
+                votes, winners advance until one shirt is crowned champion.
+              </span>
+            </li>
+          </ol>
+        ) : state.gameType === "flip7" ? (
           <ol className="flex flex-col gap-2 text-sm text-ink/70">
             <li className="flex gap-2">
               <span className="font-bold text-accent">1.</span>

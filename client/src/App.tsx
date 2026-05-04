@@ -13,6 +13,11 @@ import { SpyfallVoting } from "./games/spyfall/Voting";
 import { SpyfallResults } from "./games/spyfall/Results";
 import { Flip7Round } from "./games/flip7/Round";
 import { Flip7GameOver } from "./games/flip7/GameOver";
+import { TeekoDrawing } from "./games/teeko/Drawing";
+import { TeekoWriting } from "./games/teeko/Writing";
+import { TeekoComposing } from "./games/teeko/Composing";
+import { TeekoBracket } from "./games/teeko/Bracket";
+import { TeekoChampion } from "./games/teeko/Champion";
 
 const STORAGE_KEY = "impromptser:credentials";
 
@@ -137,6 +142,19 @@ export default function App() {
           return <Flip7Round state={state} socket={socket} />;
         case "GAME_OVER":
           return <Flip7GameOver state={state} socket={socket} />;
+      }
+    } else if (state.gameType === "teeko") {
+      switch (state.phase) {
+        case "DRAWING":
+          return <TeekoDrawing state={state} socket={socket} />;
+        case "WRITING":
+          return <TeekoWriting state={state} socket={socket} />;
+        case "COMPOSING":
+          return <TeekoComposing state={state} socket={socket} />;
+        case "BRACKET":
+          return <TeekoBracket state={state} socket={socket} />;
+        case "CHAMPION":
+          return <TeekoChampion state={state} socket={socket} />;
       }
     } else {
       switch (state.phase) {

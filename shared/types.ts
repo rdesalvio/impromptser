@@ -1,4 +1,4 @@
-export type GameType = "imposter" | "spyfall" | "flip7";
+export type GameType = "imposter" | "spyfall" | "flip7" | "teeko";
 
 export type Phase =
   | "LOBBY"
@@ -10,7 +10,12 @@ export type Phase =
   | "RESULTS"
   | "ROUND"
   | "ROUND_END"
-  | "GAME_OVER";
+  | "GAME_OVER"
+  | "DRAWING"
+  | "WRITING"
+  | "COMPOSING"
+  | "BRACKET"
+  | "CHAMPION";
 
 export type PlayerId = string;
 export type RoomCode = string;
@@ -121,6 +126,65 @@ export interface Flip7RoundPublic {
   gameWinnerId?: PlayerId;       // GAME_OVER only
 }
 
+// ----- Tee K.O. -----
+
+export interface DrawingStroke {
+  color: string;
+  width: number;
+  points: { x: number; y: number }[];
+}
+
+export interface TeekoDrawingPublic {
+  id: string;
+  strokes: DrawingStroke[];
+}
+
+export interface TeekoSloganPublic {
+  id: string;
+  text: string;
+}
+
+export interface TeekoShirtPublic {
+  id: string;
+  drawing: TeekoDrawingPublic;
+  slogan: TeekoSloganPublic;
+}
+
+export interface TeekoMatchupPublic {
+  byeShirt?: TeekoShirtPublic;       // present only if this is a bye
+  leftShirt?: TeekoShirtPublic;
+  rightShirt?: TeekoShirtPublic;
+  myVote?: "LEFT" | "RIGHT";         // visible to the voter only
+  revealed: boolean;
+  leftVotes?: number;                // populated only after reveal
+  rightVotes?: number;
+  winner?: "LEFT" | "RIGHT";
+}
+
+export interface TeekoRoundPublic {
+  phaseEndsAt: number;
+  drawing?: { mySubmitted: number; target: number };
+  writing?: { mySubmitted: number; mySlogans: string[]; target: number };
+  composing?: {
+    myHand?: { drawings: TeekoDrawingPublic[]; slogans: TeekoSloganPublic[] };
+    submitted: boolean;
+    progress: { submitted: number; total: number };
+  };
+  bracket?: {
+    currentRound: number;
+    totalRounds: number;
+    matchupIndex: number;
+    matchupsInRound: number;
+    matchup: TeekoMatchupPublic;
+  };
+  champion?: {
+    shirt: TeekoShirtPublic;
+    composerId: PlayerId;
+    drawingAuthorId: PlayerId;
+    sloganAuthorId: PlayerId;
+  };
+}
+
 export interface RoomStatePublic {
   code: RoomCode;
   gameType: GameType;
@@ -132,6 +196,7 @@ export interface RoomStatePublic {
   spyfallRound?: SpyfallRoundPublic;
   flip7Round?: Flip7RoundPublic;
   flip7TargetScore?: number;     // visible in lobby so all players see what the host picked
+  teekoRound?: TeekoRoundPublic;
   minPlayers: number;
 }
 
@@ -152,10 +217,26 @@ export const FLIP7_RECENT_EVENTS = 5;
 export const MIN_PLAYERS_IMPOSTER = 4;
 export const MIN_PLAYERS_SPYFALL = 3;
 export const MIN_PLAYERS_FLIP7 = 3;
+export const MIN_PLAYERS_TEEKO = 3;
 export const MAX_PLAYERS = 10;
 export const MAX_NAME_LEN = 16;
 export const MAX_ANSWER_LEN = 120;
 export const MAX_CHAT_LEN = 200;
+export const MAX_SLOGAN_LEN = 80;
+export const MAX_DRAWING_STROKES = 400;
+export const MAX_DRAWING_POINTS = 8000;
+
+export const TEEKO_DRAWING_SECONDS = 90;
+export const TEEKO_WRITING_SECONDS = 90;
+export const TEEKO_COMPOSING_SECONDS = 45;
+export const TEEKO_MATCHUP_VOTE_SECONDS = 12;
+export const TEEKO_MATCHUP_REVEAL_SECONDS = 4;
+export const TEEKO_BYE_REVEAL_SECONDS = 3;
+export const TEEKO_DRAWING_TARGET = 2;
+export const TEEKO_SLOGAN_TARGET = 4;
+export const TEEKO_HAND_DRAWINGS = 2;
+export const TEEKO_HAND_SLOGANS = 4;
+export const TEEKO_SHIRTS_PER_PLAYER = 2;
 
 export interface ClientToServerEvents {
   "room:create": (
@@ -174,6 +255,13 @@ export interface ClientToServerEvents {
   "flip7:target": (payload: { targetPlayerId: string }) => void;
   "flip7:set-target": (payload: { targetScore: number }) => void;
   "flip7:next-game": () => void;
+  "teeko:submit-drawing": (payload: { strokes: DrawingStroke[] }) => void;
+  "teeko:submit-slogan": (payload: { text: string }) => void;
+  "teeko:submit-shirts": (
+    payload: { shirts: { drawingId: string; sloganId: string }[] }
+  ) => void;
+  "teeko:vote": (payload: { side: "LEFT" | "RIGHT" }) => void;
+  "teeko:next-game": () => void;
 }
 
 export interface ServerToClientEvents {

@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import { randomUUID } from "crypto";
 import path from "path";
 import { fileURLToPath } from "url";
-import { Flip7Room, RoomStore, sanitizeName } from "./rooms.ts";
+import { Flip7Room, RoomStore, TeekoRoom, sanitizeName } from "./rooms.ts";
 import type {
   AckCreate,
   AckJoin,
@@ -55,7 +55,13 @@ io.on("connection", (socket) => {
   socket.on("room:create", ({ name, gameType }, ack: (r: AckCreate) => void) => {
     const playerId = randomUUID();
     const type =
-      gameType === "spyfall" ? "spyfall" : gameType === "flip7" ? "flip7" : "imposter";
+      gameType === "spyfall"
+        ? "spyfall"
+        : gameType === "flip7"
+          ? "flip7"
+          : gameType === "teeko"
+            ? "teeko"
+            : "imposter";
     const room = store.create(playerId, type);
     const cleanName = sanitizeName(name);
     room.addPlayer(playerId, cleanName);
@@ -155,6 +161,46 @@ io.on("connection", (socket) => {
     if (!data.roomCode || !data.playerId) return;
     const room = store.get(data.roomCode);
     if (!(room instanceof Flip7Room)) return;
+    const res = room.nextGame(data.playerId);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Reset failed");
+  });
+
+  socket.on("teeko:submit-drawing", ({ strokes }) => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof TeekoRoom)) return;
+    const res = room.submitDrawing(data.playerId, strokes);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Submit drawing failed");
+  });
+
+  socket.on("teeko:submit-slogan", ({ text }) => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof TeekoRoom)) return;
+    const res = room.submitSlogan(data.playerId, text);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Submit slogan failed");
+  });
+
+  socket.on("teeko:submit-shirts", ({ shirts }) => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof TeekoRoom)) return;
+    const res = room.submitShirts(data.playerId, shirts);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Submit shirts failed");
+  });
+
+  socket.on("teeko:vote", ({ side }) => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof TeekoRoom)) return;
+    const res = room.vote(data.playerId, side);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Vote failed");
+  });
+
+  socket.on("teeko:next-game", () => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof TeekoRoom)) return;
     const res = room.nextGame(data.playerId);
     if (!res.ok) socket.emit("room:error", res.error ?? "Reset failed");
   });
