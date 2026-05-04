@@ -52,7 +52,12 @@
       "Bash(curl -s http://localhost:3001/debug/rooms)",
       "Bash(node scripts/smoketest.mjs)",
       "Bash(node /tmp/flip7-smoke.mjs)",
-      "Bash(node scripts/flip7-smoketest.mjs)"
+      "Bash(node scripts/flip7-smoketest.mjs)",
+      "Bash(pkill -9 -f vite)",
+      "Bash(node /tmp/trace.mjs)",
+      "Bash(pkill -9 -f \"node --watch\")",
+      "Bash(nohup node *)",
+      "Bash(kill -9 3723422)"
     ]
   }
 }

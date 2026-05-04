@@ -69,7 +69,10 @@ export function Flip7Round({
     }
     if (awaiting.kind === "FORCED_DRAWING") {
       const name = playersById[awaiting.targetId]?.name ?? "?";
-      return `${name} is forced-drawing… (${round.flipThree?.remaining ?? 0} left)`;
+      if (round.flipThree) {
+        return `${name} is being forced to draw… (${round.flipThree.remaining} left)`;
+      }
+      return `Dealing initial card to ${name}…`;
     }
     return "";
   })();

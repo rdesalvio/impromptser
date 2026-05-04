@@ -65,6 +65,11 @@ export function PlayerRow({
               className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${STATUS_BADGE_CLASS[hand.status]}`}
             >
               {STATUS_LABEL[hand.status]}
+              {hand.status === "BUSTED" && hand.bustedOn !== undefined && (
+                <span className="ml-1 font-normal opacity-80">
+                  on {hand.bustedOn}
+                </span>
+              )}
             </span>
           )}
         </div>

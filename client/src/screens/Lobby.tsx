@@ -126,30 +126,32 @@ export function Lobby({
             <li className="flex gap-2">
               <span className="font-bold text-accent">1.</span>
               <span>
-                On your turn, <span className="font-semibold">HIT</span> to draw a card or{" "}
-                <span className="font-semibold">STAY</span> to bank what you have.
+                Each round starts by dealing one card to every player.
+                Then play goes around the table — on your turn, you do{" "}
+                <span className="font-semibold">one</span> action: HIT to draw a card,
+                or STAY to bank what you have.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="font-bold text-accent">2.</span>
               <span>
-                Number cards score their face value. Draw a duplicate number and
-                you <span className="font-semibold text-danger">BUST</span> — your round score becomes 0.
+                Number cards score their face value. Draw a duplicate and you{" "}
+                <span className="font-semibold text-danger">BUST</span> — round score 0.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="font-bold text-accent">3.</span>
               <span>
                 Modifiers (<span className="font-mono">+2</span>…<span className="font-mono">+10</span>,{" "}
-                <span className="font-mono">x2</span>) add to your score. Action cards (Freeze,
-                Flip Three, Second Chance) target a player when drawn.
+                <span className="font-mono">x2</span>) add to your score. Action cards
+                (Freeze, Flip Three, Second Chance) target a player when drawn.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="font-bold text-accent">4.</span>
               <span>
-                Collect <span className="font-semibold">7 unique numbers</span> (FLIP 7!) and
-                the round ends with a +15 bonus.
+                Collect <span className="font-semibold">7 unique numbers</span> (FLIP 7!)
+                and the round ends with a +15 bonus.
               </span>
             </li>
             <li className="flex gap-2">

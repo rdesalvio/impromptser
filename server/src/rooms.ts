@@ -615,6 +615,7 @@ interface Flip7Round {
   hands: Map<PlayerId, Flip7Hand>;
   awaiting: Flip7Awaiting;
   flipThree?: { targetId: PlayerId; remaining: number };
+  initialDealIndex?: number; // server-internal: position in turn order being dealt to
   recentEvents: Flip7Event[];
   roundEndsAt?: number;
 }
@@ -730,7 +731,6 @@ export class Flip7Room extends RoomBase {
   private beginRound(roundNumber: number) {
     const connected = [...this.players.values()].filter((p) => p.connected);
     const turnOrder = connected.map((p) => p.id);
-    const startIndex = ((roundNumber - 1) % turnOrder.length + turnOrder.length) % turnOrder.length;
     shuffleInPlace(turnOrder);
     const deck = buildDeck();
     shuffleInPlace(deck);
@@ -749,25 +749,41 @@ export class Flip7Room extends RoomBase {
       deck,
       discard: [],
       turnOrder,
-      currentPlayerIndex: startIndex < turnOrder.length ? startIndex : 0,
+      currentPlayerIndex: 0,
       hands,
-      awaiting: {
-        kind: "DECISION",
-        playerId: turnOrder[0],
-        deadline: Date.now() + FLIP7_DECISION_SECONDS * 1000,
-      },
+      awaiting: { kind: "FORCED_DRAWING", targetId: turnOrder[0] },
       recentEvents: [],
-    };
-    this.round.currentPlayerIndex = 0;
-    this.round.awaiting = {
-      kind: "DECISION",
-      playerId: turnOrder[0],
-      deadline: Date.now() + FLIP7_DECISION_SECONDS * 1000,
+      initialDealIndex: 0,
     };
     this.phase = "ROUND";
-    this.logEvent(`Round ${roundNumber} begins — ${this.nameOf(turnOrder[0])} starts`);
-    this.startDecisionTimer();
+    this.logEvent(`Round ${roundNumber} begins — dealing one card to each player`);
+    this.scheduleInitialDeal();
+  }
+
+  private scheduleInitialDeal() {
+    if (!this.round) return;
+    if (
+      this.round.initialDealIndex === undefined ||
+      this.round.initialDealIndex >= this.round.turnOrder.length
+    ) {
+      // Done dealing — start regular play
+      this.round.initialDealIndex = undefined;
+      this.beginCurrentPlayerDecision();
+      return;
+    }
+    const targetId = this.round.turnOrder[this.round.initialDealIndex];
+    this.round.awaiting = { kind: "FORCED_DRAWING", targetId };
+    this.clearTimer();
+    this.timer = setTimeout(() => {
+      this.drawAndApply(targetId);
+    }, FLIP7_FORCED_DRAW_MS);
     this.emitChange();
+  }
+
+  private advanceInitialDeal() {
+    if (!this.round) return;
+    this.round.initialDealIndex = (this.round.initialDealIndex ?? 0) + 1;
+    this.scheduleInitialDeal();
   }
 
   private startDecisionTimer() {
@@ -844,6 +860,7 @@ export class Flip7Room extends RoomBase {
           this.continueAfterDraw(drawerId);
         } else {
           hand.status = "BUSTED";
+          hand.bustedOn = card.value;
           hand.roundScore = 0;
           this.round.discard.push(card);
           this.logEvent(`${this.nameOf(drawerId)} BUSTED on duplicate ${card.value}`);
@@ -882,31 +899,41 @@ export class Flip7Room extends RoomBase {
   private continueAfterDraw(drawerId: PlayerId) {
     if (!this.round) return;
     if (this.round.flipThree && this.round.flipThree.targetId === drawerId) {
-      this.round.flipThree.remaining -= 1;
-      if (this.round.flipThree.remaining <= 0) {
-        this.round.flipThree = undefined;
-        // Return to turn-holder's decision
-        this.beginCurrentPlayerDecision();
+      this.continueFlipThreeSequence();
+    } else if (this.round.initialDealIndex !== undefined) {
+      this.advanceInitialDeal();
+    } else {
+      // Round-robin: one card per turn, then advance.
+      this.advanceAfterPlayerDone();
+    }
+  }
+
+  private continueFlipThreeSequence() {
+    if (!this.round?.flipThree) return;
+    this.round.flipThree.remaining -= 1;
+    if (this.round.flipThree.remaining <= 0) {
+      this.round.flipThree = undefined;
+      if (this.round.initialDealIndex !== undefined) {
+        this.advanceInitialDeal();
       } else {
-        this.scheduleForcedDraw();
+        this.advanceAfterPlayerDone();
       }
     } else {
-      // Normal turn — same player decides again
-      this.beginDecisionFor(drawerId);
+      this.scheduleForcedDraw();
     }
   }
 
   private handleDrawerStopped(drawerId: PlayerId) {
     if (!this.round) return;
     if (this.round.flipThree && this.round.flipThree.targetId === drawerId) {
-      // Stop the sequence (target busted)
+      // Sequence stops: target busted (or otherwise can't continue).
       this.round.flipThree = undefined;
-      // Return to turn-holder for their continued decision (they didn't lose their turn)
-      this.beginCurrentPlayerDecision();
-    } else {
-      // Normal turn ended (busted)
-      this.advanceAfterPlayerDone();
     }
+    if (this.round.initialDealIndex !== undefined) {
+      this.advanceInitialDeal();
+      return;
+    }
+    this.advanceAfterPlayerDone();
   }
 
   private handleActionDraw(actorId: PlayerId, kind: "FREEZE" | "FLIP3" | "SECOND_CHANCE") {
@@ -978,13 +1005,15 @@ export class Flip7Room extends RoomBase {
 
   private resumeAfterAction(actorId: PlayerId) {
     if (!this.round) return;
-    // Per decision B: action does not end the actor's turn.
-    if (this.round.flipThree) {
-      this.scheduleForcedDraw();
+    // The action card draw counts as the actor's draw for this turn / sequence slot.
+    if (this.round.flipThree && this.round.flipThree.targetId === actorId) {
+      // Action card was drawn during a Flip Three forced sequence — count it.
+      this.continueFlipThreeSequence();
+    } else if (this.round.initialDealIndex !== undefined) {
+      this.advanceInitialDeal();
     } else {
-      // Resume actor's turn (who is the turn-holder *unless* this action was triggered
-      // from inside a Flip Three — but that case is handled via the flipThree branch above).
-      this.beginDecisionFor(actorId);
+      // Round-robin: action card resolved → turn passes.
+      this.advanceAfterPlayerDone();
     }
   }
 
@@ -1114,6 +1143,7 @@ export class Flip7Room extends RoomBase {
           hasSecondChance: h.hasSecondChance,
           status: h.status,
           roundScore: h.roundScore,
+          bustedOn: h.bustedOn,
         };
       }
       const roundOverIn =

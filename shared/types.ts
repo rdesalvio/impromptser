@@ -88,6 +88,7 @@ export interface Flip7Hand {
   hasSecondChance: boolean;
   status: Flip7HandStatus;
   roundScore: number;
+  bustedOn?: number;
 }
 
 export type Flip7Awaiting =
