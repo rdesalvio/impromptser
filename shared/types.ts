@@ -1,7 +1,11 @@
+export type GameType = "imposter" | "spyfall";
+
 export type Phase =
   | "LOBBY"
   | "ANSWERING"
   | "IMPOSTER_ANSWERING"
+  | "REVEAL"
+  | "DISCUSS"
   | "VOTING"
   | "RESULTS";
 
@@ -29,7 +33,7 @@ export interface AnswerCard {
   text: string;
 }
 
-export interface RoundPublic {
+export interface ImposterRoundPublic {
   promptForRealPlayers: string | null;
   answers: AnswerCard[];
   votes: Record<PlayerId, PlayerId>;
@@ -43,13 +47,30 @@ export interface RoundPublic {
   iVoted: boolean;
 }
 
+export interface SpyfallRoundPublic {
+  myRole: "SPY" | "PLAYER";
+  myLocation?: string;
+  myLocationRole?: string;
+  allLocations: string[];
+  votes: Record<PlayerId, PlayerId>;
+  chat: ChatMsg[];
+  phaseEndsAt: number;
+  iVoted: boolean;
+  spyRevealed?: PlayerId;
+  actualLocation?: string;
+  winner?: "PLAYERS" | "SPY";
+  mostVotedPlayerId?: PlayerId;
+}
+
 export interface RoomStatePublic {
   code: RoomCode;
+  gameType: GameType;
   phase: Phase;
   players: Player[];
   hostId: PlayerId;
   myId: PlayerId;
-  round?: RoundPublic;
+  imposterRound?: ImposterRoundPublic;
+  spyfallRound?: SpyfallRoundPublic;
   minPlayers: number;
 }
 
@@ -57,19 +78,26 @@ export const ANSWER_SECONDS = 30;
 export const IMPOSTER_ANSWER_SECONDS = 30;
 export const VOTING_SECONDS = 60;
 export const RESULTS_SECONDS = 15;
-export const MIN_PLAYERS = 4;
+export const REVEAL_SECONDS = 15;
+export const DISCUSS_SECONDS = 360;
+export const MIN_PLAYERS_IMPOSTER = 4;
+export const MIN_PLAYERS_SPYFALL = 3;
 export const MAX_PLAYERS = 10;
 export const MAX_NAME_LEN = 16;
 export const MAX_ANSWER_LEN = 120;
 export const MAX_CHAT_LEN = 200;
 
 export interface ClientToServerEvents {
-  "room:create": (payload: { name: string }, ack: (res: AckCreate) => void) => void;
+  "room:create": (
+    payload: { name: string; gameType: GameType },
+    ack: (res: AckCreate) => void
+  ) => void;
   "room:join": (payload: { code: string; name: string }, ack: (res: AckJoin) => void) => void;
   "room:rejoin": (payload: { code: string; playerId: string }, ack: (res: AckJoin) => void) => void;
   "game:start": () => void;
   "answer:submit": (payload: { text: string }) => void;
   "vote:cast": (payload: { targetPlayerId: string }) => void;
+  "vote:call": () => void;
   "chat:send": (payload: { text: string }) => void;
 }
 

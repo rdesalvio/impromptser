@@ -40,7 +40,17 @@
       "Bash(disown)",
       "Bash(curl -s -o /tmp/root.html -w \"status=%{http_code} size=%{size_download}\\\\n\" http://localhost:3001/)",
       "Bash(curl -s -o /dev/null -w \"status=%{http_code}\\\\n\" http://localhost:3001/admin)",
-      "Bash(curl -s -o /dev/null -w \"status=%{http_code}\\\\n\" http://localhost:3001/r/ABCD)"
+      "Bash(curl -s -o /dev/null -w \"status=%{http_code}\\\\n\" http://localhost:3001/r/ABCD)",
+      "Bash(pkill -f \"node.*server/src/index\")",
+      "Bash(rm -f /tmp/impromptser-dev.log)",
+      "Bash(lsof -ti:3001)",
+      "Bash(xargs -r kill -9)",
+      "Bash(lsof -ti:5173)",
+      "Bash(pkill -9 -f \"concurrently.*impromptser\")",
+      "Bash(pkill -9 -f \"vite\")",
+      "Bash(pkill -9 -f \"node --watch src/index\")",
+      "Bash(curl -s http://localhost:3001/debug/rooms)",
+      "Bash(node scripts/smoketest.mjs)"
     ]
   }
 }

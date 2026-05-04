@@ -1,13 +1,13 @@
-import type { RoomStatePublic } from "../../../shared/types";
-import { Timer } from "../components/Timer";
+import type { RoomStatePublic } from "../../../../shared/types";
+import { Timer } from "../../components/Timer";
 
-export function Results({ state }: { state: RoomStatePublic }) {
-  const round = state.imposterRound!;
+export function SpyfallResults({ state }: { state: RoomStatePublic }) {
+  const round = state.spyfallRound!;
   const playerNameById: Record<string, string> = Object.fromEntries(
     state.players.map((p) => [p.id, p.name])
   );
-  const imposterName = round.imposterRevealed
-    ? playerNameById[round.imposterRevealed] ?? "?"
+  const spyName = round.spyRevealed
+    ? playerNameById[round.spyRevealed] ?? "?"
     : "?";
   const playersWon = round.winner === "PLAYERS";
 
@@ -33,42 +33,45 @@ export function Results({ state }: { state: RoomStatePublic }) {
             : "border-danger/40 bg-danger/5",
         ].join(" ")}
       >
-        <div className="text-5xl">{playersWon ? "🎉" : "🤡"}</div>
+        <div className="text-5xl">{playersWon ? "🎉" : "🕵️"}</div>
         <div className="text-2xl font-black">
-          {playersWon ? "Players Win!" : "Imposter Wins!"}
+          {playersWon ? "Players Win!" : "Spy Wins!"}
         </div>
         <div className="text-sm text-ink/60">
           {playersWon
-            ? `You sniffed out ${imposterName}.`
-            : `${imposterName} fooled the room.`}
+            ? `You sniffed out ${spyName}.`
+            : `${spyName} got away.`}
         </div>
+        <div className="mt-2 text-xs uppercase tracking-widest text-ink/50">
+          Location was
+        </div>
+        <div className="text-lg font-semibold">{round.actualLocation}</div>
       </div>
 
       <div className="card">
         <div className="mb-2 text-xs font-medium uppercase tracking-wider text-ink/50">
-          Answers
+          Votes
         </div>
         <ul className="flex flex-col gap-2">
-          {round.answers.map((a) => {
-            const isImposter = a.ownerId === round.imposterRevealed;
-            const votes = voteCounts[a.ownerId] ?? 0;
+          {state.players.map((p) => {
+            const isSpy = p.id === round.spyRevealed;
+            const votes = voteCounts[p.id] ?? 0;
             return (
               <li
-                key={a.ownerId}
+                key={p.id}
                 className={[
                   "flex items-center justify-between rounded-xl border px-3 py-2",
-                  isImposter
+                  isSpy
                     ? "border-danger/40 bg-danger/5"
                     : "border-ink/10 bg-white",
                 ].join(" ")}
               >
                 <div>
-                  <div className="text-sm font-medium">{a.text}</div>
-                  <div className="text-xs text-ink/50">
-                    {playerNameById[a.ownerId] ?? "?"}
-                    {isImposter && (
-                      <span className="ml-1 font-semibold text-danger">
-                        IMPOSTER
+                  <div className="text-sm font-medium">
+                    {p.name}
+                    {isSpy && (
+                      <span className="ml-2 text-xs font-semibold text-danger">
+                        SPY
                       </span>
                     )}
                   </div>

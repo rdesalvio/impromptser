@@ -1,12 +1,25 @@
 import { useState } from "react";
 import type { AppSocket } from "../socket";
-import type { AckCreate, AckJoin } from "../../../shared/types";
+import type { AckCreate, AckJoin, GameType } from "../../../shared/types";
 import { MAX_NAME_LEN as NAME_LIMIT } from "../../../shared/types";
 
 export type LandingMode =
   | { kind: "join" }
   | { kind: "join-direct"; code: string }
   | { kind: "admin" };
+
+const GAMES: { id: GameType; name: string; tagline: string }[] = [
+  {
+    id: "imposter",
+    name: "Impromptser",
+    tagline: "Spot the player who never saw the prompt.",
+  },
+  {
+    id: "spyfall",
+    name: "Spyfall",
+    tagline: "Find the spy who doesn't know the location.",
+  },
+];
 
 export function Landing({
   socket,
@@ -21,6 +34,7 @@ export function Landing({
   const [code, setCode] = useState(
     mode.kind === "join-direct" ? mode.code : ""
   );
+  const [gameType, setGameType] = useState<GameType>("imposter");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -33,11 +47,15 @@ export function Landing({
     setBusy(true);
     setError(null);
     persistName(name.trim());
-    socket.emit("room:create", { name: name.trim() }, (res: AckCreate) => {
-      setBusy(false);
-      if (!res.ok) return setError(res.error);
-      onJoined(res.code, res.playerId);
-    });
+    socket.emit(
+      "room:create",
+      { name: name.trim(), gameType },
+      (res: AckCreate) => {
+        setBusy(false);
+        if (!res.ok) return setError(res.error);
+        onJoined(res.code, res.playerId);
+      }
+    );
   }
 
   function join() {
@@ -89,14 +107,37 @@ export function Landing({
       </div>
 
       {mode.kind === "admin" ? (
-        <div className="card flex flex-col gap-3">
-          <button className="btn-primary" disabled={busy} onClick={create}>
-            Create Room
-          </button>
-          <p className="text-center text-xs text-ink/40">
-            You'll be the host. Share the room link with your friends.
-          </p>
-        </div>
+        <>
+          <div className="card flex flex-col gap-3">
+            <label className="text-sm font-medium text-ink/70">Game</label>
+            <div className="flex flex-col gap-2">
+              {GAMES.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => setGameType(g.id)}
+                  className={[
+                    "rounded-2xl border px-4 py-3 text-left transition",
+                    gameType === g.id
+                      ? "border-accent bg-accent/10"
+                      : "border-ink/10 bg-white hover:border-accent/40",
+                  ].join(" ")}
+                >
+                  <div className="font-semibold">{g.name}</div>
+                  <div className="text-xs text-ink/60">{g.tagline}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="card flex flex-col gap-3">
+            <button className="btn-primary" disabled={busy} onClick={create}>
+              Create Room
+            </button>
+            <p className="text-center text-xs text-ink/40">
+              You'll be the host. Share the room link with your friends.
+            </p>
+          </div>
+        </>
       ) : mode.kind === "join-direct" ? (
         <div className="card flex flex-col gap-3">
           <button

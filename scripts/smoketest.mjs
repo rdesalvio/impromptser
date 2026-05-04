@@ -29,7 +29,7 @@ await wait(300);
 
 const host = players[0];
 const code = await new Promise((res) => {
-  host.sock.emit("room:create", { name: host.name }, (r) => {
+  host.sock.emit("room:create", { name: host.name, gameType: "imposter" }, (r) => {
     if (!r.ok) throw new Error("create failed: " + r.error);
     console.log(`[host] created room ${r.code}`);
     res(r.code);
@@ -51,8 +51,8 @@ console.log("All 4 in lobby. Starting game.");
 host.sock.emit("game:start");
 
 await until(() => players.every((p) => p.latest?.phase === "ANSWERING"));
-const imposter = players.find((p) => p.latest.round.myRole === "IMPOSTER");
-const realPlayers = players.filter((p) => p.latest.round.myRole !== "IMPOSTER");
+const imposter = players.find((p) => p.latest.imposterRound.myRole === "IMPOSTER");
+const realPlayers = players.filter((p) => p.latest.imposterRound.myRole !== "IMPOSTER");
 console.log(`Imposter: ${imposter.name}`);
 
 for (const p of realPlayers) {
@@ -60,7 +60,7 @@ for (const p of realPlayers) {
 }
 
 await until(() => imposter.latest?.phase === "IMPOSTER_ANSWERING");
-console.log(`Imposter sees ${imposter.latest.round.answers.length} answers`);
+console.log(`Imposter sees ${imposter.latest.imposterRound.answers.length} answers`);
 imposter.sock.emit("answer:submit", { text: "imposter's towel" });
 
 await until(() => players.every((p) => p.latest.phase === "VOTING"));
@@ -74,7 +74,7 @@ for (const p of players) {
 players[1].sock.emit("chat:send", { text: "Definitely the towel guy." });
 
 await until(() => players.every((p) => p.latest.phase === "RESULTS"));
-const r0 = players[0].latest.round;
+const r0 = players[0].latest.imposterRound;
 console.log(
   `Winner: ${r0.winner}, imposter revealed correctly: ${r0.imposterRevealed === imposterId}`
 );

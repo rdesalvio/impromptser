@@ -11,7 +11,7 @@ export function Voting({
   state: RoomStatePublic;
   socket: AppSocket;
 }) {
-  const round = state.round!;
+  const round = state.imposterRound!;
   const [chatText, setChatText] = useState("");
   const [pendingVote, setPendingVote] = useState<string | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);

@@ -1,36 +1,30 @@
 import {
   ANSWER_SECONDS,
+  DISCUSS_SECONDS,
   IMPOSTER_ANSWER_SECONDS,
   MAX_ANSWER_LEN,
   MAX_CHAT_LEN,
   MAX_NAME_LEN,
   MAX_PLAYERS,
-  MIN_PLAYERS,
+  MIN_PLAYERS_IMPOSTER,
+  MIN_PLAYERS_SPYFALL,
   RESULTS_SECONDS,
+  REVEAL_SECONDS,
   VOTING_SECONDS,
 } from "../../shared/types.ts";
 import type {
   ChatMsg,
+  GameType,
+  ImposterRoundPublic,
   Phase,
   Player,
   PlayerId,
   RoomCode,
   RoomStatePublic,
-  RoundPublic,
+  SpyfallRoundPublic,
 } from "../../shared/types.ts";
 import { pickRandomPrompt } from "./prompts.ts";
-
-interface Round {
-  promptId: string;
-  promptText: string;
-  imposterId: PlayerId;
-  answers: Map<PlayerId, string>;
-  votes: Map<PlayerId, PlayerId>;
-  chat: ChatMsg[];
-  phaseEndsAt: number;
-  winner?: "PLAYERS" | "IMPOSTER";
-  mostVotedAnswerOwnerId?: PlayerId;
-}
+import { ALL_LOCATION_NAMES, pickRandomLocation } from "./locations.ts";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -54,15 +48,16 @@ export function sanitizeText(raw: string, max: number): string {
   return (raw ?? "").toString().slice(0, max);
 }
 
-export type StateChangeListener = (room: Room) => void;
+export type StateChangeListener = (room: RoomBase) => void;
 
-export class Room {
+export abstract class RoomBase {
+  abstract readonly gameType: GameType;
+  abstract readonly minPlayers: number;
   code: RoomCode;
   players = new Map<PlayerId, Player>();
   hostId: PlayerId;
   phase: Phase = "LOBBY";
-  round?: Round;
-  private timer?: NodeJS.Timeout;
+  protected timer?: NodeJS.Timeout;
   private listeners = new Set<StateChangeListener>();
 
   constructor(code: RoomCode, hostId: PlayerId) {
@@ -139,12 +134,88 @@ export class Room {
     return [...this.players.values()].every((p) => !p.connected);
   }
 
+  protected setPhase(phase: Phase, seconds: number, onElapsed: () => void) {
+    this.phase = phase;
+    this.clearTimer();
+    this.timer = setTimeout(onElapsed, seconds * 1000);
+    this.emitChange();
+  }
+
+  protected clearTimer() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
+  }
+
+  destroy() {
+    this.clearTimer();
+    this.listeners.clear();
+  }
+
+  abstract startGame(by: PlayerId): { ok: boolean; error?: string };
+  abstract publicStateFor(viewerId: PlayerId): RoomStatePublic;
+
+  submitAnswer(_playerId: PlayerId, _text: string): { ok: boolean; error?: string } {
+    return { ok: false, error: "Not supported in this game" };
+  }
+  castVote(_voterId: PlayerId, _targetPlayerId: PlayerId): { ok: boolean; error?: string } {
+    return { ok: false, error: "Not voting right now" };
+  }
+  callVote(_playerId: PlayerId): { ok: boolean; error?: string } {
+    return { ok: false, error: "Not supported in this game" };
+  }
+  postChat(_playerId: PlayerId, _text: string): { ok: boolean; error?: string } {
+    return { ok: false, error: "Chat not available right now" };
+  }
+
+  protected baseStateFor(
+    viewerId: PlayerId
+  ): Omit<RoomStatePublic, "imposterRound" | "spyfallRound"> {
+    const players = [...this.players.values()].map((p) => ({ ...p }));
+    return {
+      code: this.code,
+      gameType: this.gameType,
+      phase: this.phase,
+      players,
+      hostId: this.hostId,
+      myId: viewerId,
+      minPlayers: this.minPlayers,
+    };
+  }
+
+  protected returnToLobby() {
+    this.phase = "LOBBY";
+    this.clearTimer();
+    this.emitChange();
+  }
+}
+
+// ---------------- Imposter ----------------
+
+interface ImposterRound {
+  promptId: string;
+  promptText: string;
+  imposterId: PlayerId;
+  answers: Map<PlayerId, string>;
+  votes: Map<PlayerId, PlayerId>;
+  chat: ChatMsg[];
+  phaseEndsAt: number;
+  winner?: "PLAYERS" | "IMPOSTER";
+  mostVotedAnswerOwnerId?: PlayerId;
+}
+
+export class ImposterRoom extends RoomBase {
+  readonly gameType = "imposter" as const;
+  readonly minPlayers = MIN_PLAYERS_IMPOSTER;
+  round?: ImposterRound;
+
   startGame(by: PlayerId): { ok: boolean; error?: string } {
     if (by !== this.hostId) return { ok: false, error: "Only the host can start" };
     if (this.phase !== "LOBBY") return { ok: false, error: "Game already started" };
     const connected = [...this.players.values()].filter((p) => p.connected);
-    if (connected.length < MIN_PLAYERS) {
-      return { ok: false, error: `Need at least ${MIN_PLAYERS} players` };
+    if (connected.length < this.minPlayers) {
+      return { ok: false, error: `Need at least ${this.minPlayers} players` };
     }
     this.beginRound();
     return { ok: true };
@@ -166,7 +237,7 @@ export class Room {
     this.setPhase("ANSWERING", ANSWER_SECONDS, () => this.endAnsweringPhase());
   }
 
-  submitAnswer(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
+  override submitAnswer(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
     if (!this.round) return { ok: false, error: "No active round" };
     const trimmed = sanitizeText(text, MAX_ANSWER_LEN).trim();
     if (!trimmed) return { ok: false, error: "Answer cannot be empty" };
@@ -212,7 +283,7 @@ export class Room {
     this.setPhase("VOTING", VOTING_SECONDS, () => this.tallyVotes());
   }
 
-  castVote(voterId: PlayerId, targetPlayerId: PlayerId): { ok: boolean; error?: string } {
+  override castVote(voterId: PlayerId, targetPlayerId: PlayerId): { ok: boolean; error?: string } {
     if (this.phase !== "VOTING" || !this.round) {
       return { ok: false, error: "Not voting right now" };
     }
@@ -226,18 +297,11 @@ export class Room {
     this.round.votes.set(voterId, targetPlayerId);
     this.emitChange();
     const connected = [...this.players.values()].filter((p) => p.connected);
-    if (this.round.votes.size >= connected.length - 1) {
-      // -1 because the player whose answer it is can't vote for themselves;
-      // but everyone else (including imposter) can vote.
-      // Actually every connected player gets one vote (and can't pick own answer),
-      // so the max is (connected.length) since no one votes for self.
-      // We trigger early when everyone has voted:
-      if (this.round.votes.size >= connected.length) this.tallyVotes();
-    }
+    if (this.round.votes.size >= connected.length) this.tallyVotes();
     return { ok: true };
   }
 
-  postChat(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
+  override postChat(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
     if (this.phase !== "VOTING") return { ok: false, error: "Chat only during voting" };
     const player = this.players.get(playerId);
     if (!player) return { ok: false, error: "Not in this room" };
@@ -285,38 +349,15 @@ export class Room {
       if (imposter) imposter.score += 2;
     }
     this.round.phaseEndsAt = Date.now() + RESULTS_SECONDS * 1000;
-    this.setPhase("RESULTS", RESULTS_SECONDS, () => this.returnToLobby());
-  }
-
-  private returnToLobby() {
-    this.phase = "LOBBY";
-    this.round = undefined;
-    this.clearTimer();
-    this.emitChange();
-  }
-
-  private setPhase(phase: Phase, seconds: number, onElapsed: () => void) {
-    this.phase = phase;
-    this.clearTimer();
-    this.timer = setTimeout(onElapsed, seconds * 1000);
-    this.emitChange();
-  }
-
-  private clearTimer() {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = undefined;
-    }
-  }
-
-  destroy() {
-    this.clearTimer();
-    this.listeners.clear();
+    this.setPhase("RESULTS", RESULTS_SECONDS, () => {
+      this.round = undefined;
+      this.returnToLobby();
+    });
   }
 
   publicStateFor(viewerId: PlayerId): RoomStatePublic {
-    const players = [...this.players.values()].map((p) => ({ ...p }));
-    let round: RoundPublic | undefined;
+    const base = this.baseStateFor(viewerId);
+    let imposterRound: ImposterRoundPublic | undefined;
     if (this.round) {
       const isImposter = viewerId === this.round.imposterId;
       const myRole: "IMPOSTER" | "PLAYER" = isImposter ? "IMPOSTER" : "PLAYER";
@@ -343,7 +384,7 @@ export class Room {
         answers = shuffle(answers);
       }
 
-      round = {
+      imposterRound = {
         promptForRealPlayers,
         answers,
         votes:
@@ -361,15 +402,181 @@ export class Room {
         iVoted: this.round.votes.has(viewerId),
       };
     }
-    return {
-      code: this.code,
-      phase: this.phase,
-      players,
-      hostId: this.hostId,
-      myId: viewerId,
-      round,
-      minPlayers: MIN_PLAYERS,
+    return { ...base, imposterRound };
+  }
+}
+
+// ---------------- Spyfall ----------------
+
+interface SpyfallRound {
+  spyId: PlayerId;
+  location: string;
+  rolesByPlayer: Map<PlayerId, string>;
+  votes: Map<PlayerId, PlayerId>;
+  chat: ChatMsg[];
+  phaseEndsAt: number;
+  winner?: "PLAYERS" | "SPY";
+  mostVotedPlayerId?: PlayerId;
+}
+
+export class SpyfallRoom extends RoomBase {
+  readonly gameType = "spyfall" as const;
+  readonly minPlayers = MIN_PLAYERS_SPYFALL;
+  round?: SpyfallRound;
+
+  startGame(by: PlayerId): { ok: boolean; error?: string } {
+    if (by !== this.hostId) return { ok: false, error: "Only the host can start" };
+    if (this.phase !== "LOBBY") return { ok: false, error: "Game already started" };
+    const connected = [...this.players.values()].filter((p) => p.connected);
+    if (connected.length < this.minPlayers) {
+      return { ok: false, error: `Need at least ${this.minPlayers} players` };
+    }
+    this.beginRound();
+    return { ok: true };
+  }
+
+  private beginRound() {
+    const connected = [...this.players.values()].filter((p) => p.connected);
+    const spy = connected[Math.floor(Math.random() * connected.length)];
+    const location = pickRandomLocation();
+    const rolesByPlayer = new Map<PlayerId, string>();
+    const roles = shuffle(location.roles);
+    let i = 0;
+    for (const p of connected) {
+      if (p.id === spy.id) continue;
+      rolesByPlayer.set(p.id, roles[i % roles.length]);
+      i++;
+    }
+    this.round = {
+      spyId: spy.id,
+      location: location.name,
+      rolesByPlayer,
+      votes: new Map(),
+      chat: [],
+      phaseEndsAt: Date.now() + REVEAL_SECONDS * 1000,
     };
+    this.setPhase("REVEAL", REVEAL_SECONDS, () => this.startDiscussPhase());
+  }
+
+  private startDiscussPhase() {
+    if (!this.round) return;
+    this.round.phaseEndsAt = Date.now() + DISCUSS_SECONDS * 1000;
+    this.setPhase("DISCUSS", DISCUSS_SECONDS, () => this.startVotingPhase());
+  }
+
+  private startVotingPhase() {
+    if (!this.round) return;
+    this.round.phaseEndsAt = Date.now() + VOTING_SECONDS * 1000;
+    this.setPhase("VOTING", VOTING_SECONDS, () => this.tallyVotes());
+  }
+
+  override callVote(playerId: PlayerId): { ok: boolean; error?: string } {
+    if (this.phase !== "DISCUSS") {
+      return { ok: false, error: "Can only call vote during discussion" };
+    }
+    if (!this.players.has(playerId)) return { ok: false, error: "Not in this room" };
+    this.startVotingPhase();
+    return { ok: true };
+  }
+
+  override castVote(voterId: PlayerId, targetPlayerId: PlayerId): { ok: boolean; error?: string } {
+    if (this.phase !== "VOTING" || !this.round) {
+      return { ok: false, error: "Not voting right now" };
+    }
+    if (!this.players.has(voterId)) return { ok: false, error: "Not in this room" };
+    if (!this.players.has(targetPlayerId)) return { ok: false, error: "Invalid vote target" };
+    if (voterId === targetPlayerId) return { ok: false, error: "Cannot vote for yourself" };
+    this.round.votes.set(voterId, targetPlayerId);
+    this.emitChange();
+    const connected = [...this.players.values()].filter((p) => p.connected);
+    if (this.round.votes.size >= connected.length) this.tallyVotes();
+    return { ok: true };
+  }
+
+  override postChat(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
+    if (this.phase !== "DISCUSS" && this.phase !== "VOTING") {
+      return { ok: false, error: "Chat only during discussion or voting" };
+    }
+    const player = this.players.get(playerId);
+    if (!player) return { ok: false, error: "Not in this room" };
+    const trimmed = sanitizeText(text, MAX_CHAT_LEN).trim();
+    if (!trimmed) return { ok: false, error: "Empty message" };
+    if (!this.round) return { ok: false, error: "No round" };
+    this.round.chat.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      playerId,
+      playerName: player.name,
+      text: trimmed,
+      ts: Date.now(),
+    });
+    this.emitChange();
+    return { ok: true };
+  }
+
+  private tallyVotes() {
+    if (!this.round) return;
+    const counts = new Map<PlayerId, number>();
+    for (const target of this.round.votes.values()) {
+      counts.set(target, (counts.get(target) ?? 0) + 1);
+    }
+    let topCount = -1;
+    const topPlayers: PlayerId[] = [];
+    for (const [pid, count] of counts) {
+      if (count > topCount) {
+        topCount = count;
+        topPlayers.length = 0;
+        topPlayers.push(pid);
+      } else if (count === topCount) {
+        topPlayers.push(pid);
+      }
+    }
+    const isSpyTopAndAlone =
+      topPlayers.length === 1 && topPlayers[0] === this.round.spyId;
+    this.round.winner = isSpyTopAndAlone ? "PLAYERS" : "SPY";
+    this.round.mostVotedPlayerId = topPlayers.length === 1 ? topPlayers[0] : undefined;
+    if (this.round.winner === "PLAYERS") {
+      for (const p of this.players.values()) {
+        if (p.id !== this.round.spyId) p.score += 1;
+      }
+    } else {
+      const spy = this.players.get(this.round.spyId);
+      if (spy) spy.score += 2;
+    }
+    this.round.phaseEndsAt = Date.now() + RESULTS_SECONDS * 1000;
+    this.setPhase("RESULTS", RESULTS_SECONDS, () => {
+      this.round = undefined;
+      this.returnToLobby();
+    });
+  }
+
+  publicStateFor(viewerId: PlayerId): RoomStatePublic {
+    const base = this.baseStateFor(viewerId);
+    let spyfallRound: SpyfallRoundPublic | undefined;
+    if (this.round) {
+      const isSpy = viewerId === this.round.spyId;
+      const reveal = this.phase === "RESULTS";
+      spyfallRound = {
+        myRole: isSpy ? "SPY" : "PLAYER",
+        myLocation: isSpy ? undefined : this.round.location,
+        myLocationRole: isSpy ? undefined : this.round.rolesByPlayer.get(viewerId),
+        allLocations: ALL_LOCATION_NAMES,
+        votes:
+          this.phase === "VOTING" || this.phase === "RESULTS"
+            ? Object.fromEntries(this.round.votes)
+            : {},
+        chat:
+          this.phase === "DISCUSS" || this.phase === "VOTING" || this.phase === "RESULTS"
+            ? this.round.chat
+            : [],
+        phaseEndsAt: this.round.phaseEndsAt,
+        iVoted: this.round.votes.has(viewerId),
+        spyRevealed: reveal ? this.round.spyId : undefined,
+        actualLocation: reveal ? this.round.location : undefined,
+        winner: this.round.winner,
+        mostVotedPlayerId: this.round.mostVotedPlayerId,
+      };
+    }
+    return { ...base, spyfallRound };
   }
 }
 
@@ -383,16 +590,19 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export class RoomStore {
-  private rooms = new Map<RoomCode, Room>();
+  private rooms = new Map<RoomCode, RoomBase>();
 
-  create(hostId: PlayerId): Room {
+  create(hostId: PlayerId, gameType: GameType): RoomBase {
     const code = generateRoomCode(new Set(this.rooms.keys()));
-    const room = new Room(code, hostId);
+    const room: RoomBase =
+      gameType === "spyfall"
+        ? new SpyfallRoom(code, hostId)
+        : new ImposterRoom(code, hostId);
     this.rooms.set(code, room);
     return room;
   }
 
-  get(code: RoomCode): Room | undefined {
+  get(code: RoomCode): RoomBase | undefined {
     return this.rooms.get(code.toUpperCase());
   }
 
@@ -404,7 +614,7 @@ export class RoomStore {
     }
   }
 
-  all(): Room[] {
+  all(): RoomBase[] {
     return [...this.rooms.values()];
   }
 }

@@ -12,7 +12,7 @@ export function Answering({
   socket: AppSocket;
 }) {
   const [text, setText] = useState("");
-  const round = state.round!;
+  const round = state.imposterRound!;
   const isImposter = round.myRole === "IMPOSTER";
 
   if (isImposter) {

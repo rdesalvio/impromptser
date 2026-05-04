@@ -11,7 +11,7 @@ export function ImposterAnswering({
   state: RoomStatePublic;
   socket: AppSocket;
 }) {
-  const round = state.round!;
+  const round = state.imposterRound!;
   const [text, setText] = useState("");
   const isImposter = round.myRole === "IMPOSTER";
 

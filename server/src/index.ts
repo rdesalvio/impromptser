@@ -51,9 +51,10 @@ io.on("connection", (socket) => {
     }
   }
 
-  socket.on("room:create", ({ name }, ack: (r: AckCreate) => void) => {
+  socket.on("room:create", ({ name, gameType }, ack: (r: AckCreate) => void) => {
     const playerId = randomUUID();
-    const room = store.create(playerId);
+    const type = gameType === "spyfall" ? "spyfall" : "imposter";
+    const room = store.create(playerId, type);
     const cleanName = sanitizeName(name);
     room.addPlayer(playerId, cleanName);
     bindRoom(room.code, playerId);
@@ -106,6 +107,14 @@ io.on("connection", (socket) => {
     if (!room) return;
     const res = room.castVote(data.playerId, targetPlayerId);
     if (!res.ok) socket.emit("room:error", res.error ?? "Vote failed");
+  });
+
+  socket.on("vote:call", () => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!room) return;
+    const res = room.callVote(data.playerId);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Could not call vote");
   });
 
   socket.on("chat:send", ({ text }) => {

@@ -7,6 +7,10 @@ import { Answering } from "./screens/Answering";
 import { ImposterAnswering } from "./screens/ImposterAnswering";
 import { Voting } from "./screens/Voting";
 import { Results } from "./screens/Results";
+import { SpyfallReveal } from "./games/spyfall/Reveal";
+import { SpyfallDiscuss } from "./games/spyfall/Discuss";
+import { SpyfallVoting } from "./games/spyfall/Voting";
+import { SpyfallResults } from "./games/spyfall/Results";
 
 const STORAGE_KEY = "impromptser:credentials";
 
@@ -110,18 +114,33 @@ export default function App() {
         />
       );
     }
-    switch (state.phase) {
-      case "LOBBY":
-        return <Lobby state={state} socket={socket} />;
-      case "ANSWERING":
-        return <Answering state={state} socket={socket} />;
-      case "IMPOSTER_ANSWERING":
-        return <ImposterAnswering state={state} socket={socket} />;
-      case "VOTING":
-        return <Voting state={state} socket={socket} />;
-      case "RESULTS":
-        return <Results state={state} />;
+    if (state.phase === "LOBBY") {
+      return <Lobby state={state} socket={socket} />;
     }
+    if (state.gameType === "spyfall") {
+      switch (state.phase) {
+        case "REVEAL":
+          return <SpyfallReveal state={state} />;
+        case "DISCUSS":
+          return <SpyfallDiscuss state={state} socket={socket} />;
+        case "VOTING":
+          return <SpyfallVoting state={state} socket={socket} />;
+        case "RESULTS":
+          return <SpyfallResults state={state} />;
+      }
+    } else {
+      switch (state.phase) {
+        case "ANSWERING":
+          return <Answering state={state} socket={socket} />;
+        case "IMPOSTER_ANSWERING":
+          return <ImposterAnswering state={state} socket={socket} />;
+        case "VOTING":
+          return <Voting state={state} socket={socket} />;
+        case "RESULTS":
+          return <Results state={state} />;
+      }
+    }
+    return null;
   }, [credentials, state, socket]);
 
   return (
