@@ -783,11 +783,22 @@ export class Flip7Room extends RoomBase {
 
   private scheduleInitialDeal() {
     if (!this.round) return;
+    // Skip players who became non-ACTIVE before their initial card (e.g. an
+    // earlier dealt FREEZE landed on them).
+    while (
+      this.round.initialDealIndex !== undefined &&
+      this.round.initialDealIndex < this.round.turnOrder.length
+    ) {
+      const candidateId = this.round.turnOrder[this.round.initialDealIndex];
+      const hand = this.round.hands.get(candidateId);
+      if (hand?.status === "ACTIVE") break;
+      this.round.initialDealIndex++;
+    }
     if (
       this.round.initialDealIndex === undefined ||
       this.round.initialDealIndex >= this.round.turnOrder.length
     ) {
-      // Done dealing — start regular play
+      // Done dealing — start regular play.
       this.round.initialDealIndex = undefined;
       this.beginCurrentPlayerDecision();
       return;
