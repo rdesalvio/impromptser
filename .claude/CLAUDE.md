@@ -1,9 +1,10 @@
 # Impromptser
 
-A real-time multiplayer party-games platform. Two games today; more can be plugged in. Both share a lobby, room codes, share-link flow, and one-imposter-vs-the-group scoring shape.
+A real-time multiplayer party-games platform. Three games today; more can be plugged in. All share a lobby, room codes, and the share-link flow; each game has its own state machine and screens.
 
 - **Imposter** — one player never sees the prompt; others answer it; imposter has to bluff a fitting answer based on the others'.
 - **Spyfall** — everyone sees a location card except the spy; players ask each other questions; the room votes for who they think is the spy.
+- **Flip 7** — turn-based press-your-luck card game. HIT/STAY draws or banks. Bust on duplicate numbers. Modifier (+N, ×2) and action cards (Freeze, Flip Three, Second Chance) shake things up. First to 50/100/200 (host picks) wins the session.
 
 ## Architecture
 
@@ -22,6 +23,7 @@ Monorepo, three top-level folders:
 
 - `ImposterRoom` — `gameType = "imposter"`, phases `LOBBY → ANSWERING → IMPOSTER_ANSWERING → VOTING → RESULTS`.
 - `SpyfallRoom` — `gameType = "spyfall"`, phases `LOBBY → REVEAL → DISCUSS → VOTING → RESULTS`.
+- `Flip7Room` — `gameType = "flip7"`, phases `LOBBY → ROUND ↔ ROUND_END → GAME_OVER → LOBBY`. Turn-based engine driven by a single `awaiting` state of kind DECISION (30s decision timer), TARGET (15s pick-a-target after drawing an action card), or FORCED_DRAWING (server-paced ~700ms during a Flip Three sequence). Action cards do not end the actor's turn (decision B). Cumulative `Player.score` carries across rounds; round ends on Flip 7 or all-stopped, then either advances to the next round (8s pause) or transitions to GAME_OVER if any player ≥ target.
 
 `RoomStore.create(hostId, gameType)` instantiates the right one. `RoomStatePublic` carries `gameType` plus a per-game payload (`imposterRound` or `spyfallRound`); the client narrows on `gameType` to render the right screen.
 
@@ -57,7 +59,7 @@ A small Lightsail instance (≤512 MB RAM) needs swap to build — `tsc -b && vi
 - **Single instance only.** Room state is in process memory. Horizontal scaling requires the Redis Socket.IO adapter and a state store rewrite — explicitly not done.
 - **No persistence.** Server restart drops all in-progress rooms. Players reconnect via `room:rejoin` if the room still exists; otherwise they fall back to Landing.
 - **Clipboard on share link** uses `navigator.clipboard` (HTTPS / localhost) with a `document.execCommand('copy')` fallback so plain-HTTP deploys still work.
-- **Min players differ:** Imposter needs 4, Spyfall needs 3 (`MIN_PLAYERS_IMPOSTER`, `MIN_PLAYERS_SPYFALL` in `shared/types.ts`). Max is 10 for both.
+- **Min players differ:** Imposter needs 4, Spyfall and Flip 7 need 3 (`MIN_PLAYERS_*` in `shared/types.ts`). Max is 10 for all.
 
 ## Adding a new game
 
@@ -71,13 +73,15 @@ A small Lightsail instance (≤512 MB RAM) needs swap to build — `tsc -b && vi
 
 ## Files to know
 
-- `server/src/rooms.ts` — `RoomBase` + `ImposterRoom` + `SpyfallRoom`. Most game-logic changes go here.
+- `server/src/rooms.ts` — `RoomBase` + `ImposterRoom` + `SpyfallRoom` + `Flip7Room`. Most game-logic changes go here.
 - `server/src/index.ts` — socket event wiring, static file serving, debug route.
 - `server/src/prompts.ts` — imposter prompt pool.
 - `server/src/locations.ts` — Spyfall locations + roles.
+- `server/src/cards.ts` — Flip 7 deck builder (94 cards) + Fisher-Yates shuffle.
 - `client/src/App.tsx` — URL routing, socket lifecycle, credential persistence (localStorage), screen routing by `(gameType, phase)`.
 - `client/src/screens/Landing.tsx` — join + admin (game picker).
-- `client/src/screens/Lobby.tsx` — shared lobby; per-game "How to play".
+- `client/src/screens/Lobby.tsx` — shared lobby; per-game "How to play"; Flip 7 target-score picker (host only).
 - `client/src/screens/{Answering,ImposterAnswering,Voting,Results}.tsx` — imposter screens.
 - `client/src/games/spyfall/{Reveal,Discuss,Voting,Results}.tsx` — Spyfall screens.
+- `client/src/games/flip7/{Round,GameOver,PlayerRow,Card}.tsx` — Flip 7 screens. `Round` covers both ROUND and ROUND_END phases.
 - `shared/types.ts` — change here first when adding any client/server message, phase, or game constant.

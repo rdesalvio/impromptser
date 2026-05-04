@@ -11,6 +11,8 @@ import { SpyfallReveal } from "./games/spyfall/Reveal";
 import { SpyfallDiscuss } from "./games/spyfall/Discuss";
 import { SpyfallVoting } from "./games/spyfall/Voting";
 import { SpyfallResults } from "./games/spyfall/Results";
+import { Flip7Round } from "./games/flip7/Round";
+import { Flip7GameOver } from "./games/flip7/GameOver";
 
 const STORAGE_KEY = "impromptser:credentials";
 
@@ -127,6 +129,14 @@ export default function App() {
           return <SpyfallVoting state={state} socket={socket} />;
         case "RESULTS":
           return <SpyfallResults state={state} />;
+      }
+    } else if (state.gameType === "flip7") {
+      switch (state.phase) {
+        case "ROUND":
+        case "ROUND_END":
+          return <Flip7Round state={state} socket={socket} />;
+        case "GAME_OVER":
+          return <Flip7GameOver state={state} socket={socket} />;
       }
     } else {
       switch (state.phase) {

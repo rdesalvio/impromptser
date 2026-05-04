@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import { randomUUID } from "crypto";
 import path from "path";
 import { fileURLToPath } from "url";
-import { RoomStore, sanitizeName } from "./rooms.ts";
+import { Flip7Room, RoomStore, sanitizeName } from "./rooms.ts";
 import type {
   AckCreate,
   AckJoin,
@@ -53,7 +53,8 @@ io.on("connection", (socket) => {
 
   socket.on("room:create", ({ name, gameType }, ack: (r: AckCreate) => void) => {
     const playerId = randomUUID();
-    const type = gameType === "spyfall" ? "spyfall" : "imposter";
+    const type =
+      gameType === "spyfall" ? "spyfall" : gameType === "flip7" ? "flip7" : "imposter";
     const room = store.create(playerId, type);
     const cleanName = sanitizeName(name);
     room.addPlayer(playerId, cleanName);
@@ -115,6 +116,46 @@ io.on("connection", (socket) => {
     if (!room) return;
     const res = room.callVote(data.playerId);
     if (!res.ok) socket.emit("room:error", res.error ?? "Could not call vote");
+  });
+
+  socket.on("flip7:hit", () => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof Flip7Room)) return;
+    const res = room.hit(data.playerId);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Hit failed");
+  });
+
+  socket.on("flip7:stay", () => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof Flip7Room)) return;
+    const res = room.stay(data.playerId);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Stay failed");
+  });
+
+  socket.on("flip7:target", ({ targetPlayerId }) => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof Flip7Room)) return;
+    const res = room.target(data.playerId, targetPlayerId);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Target failed");
+  });
+
+  socket.on("flip7:set-target", ({ targetScore }) => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof Flip7Room)) return;
+    const res = room.setTargetScore(data.playerId, targetScore);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Set target failed");
+  });
+
+  socket.on("flip7:next-game", () => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof Flip7Room)) return;
+    const res = room.nextGame(data.playerId);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Reset failed");
   });
 
   socket.on("chat:send", ({ text }) => {

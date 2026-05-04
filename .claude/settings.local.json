@@ -50,7 +50,9 @@
       "Bash(pkill -9 -f \"vite\")",
       "Bash(pkill -9 -f \"node --watch src/index\")",
       "Bash(curl -s http://localhost:3001/debug/rooms)",
-      "Bash(node scripts/smoketest.mjs)"
+      "Bash(node scripts/smoketest.mjs)",
+      "Bash(node /tmp/flip7-smoke.mjs)",
+      "Bash(node scripts/flip7-smoketest.mjs)"
     ]
   }
 }

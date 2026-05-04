@@ -19,6 +19,11 @@ const GAMES: { id: GameType; name: string; tagline: string }[] = [
     name: "Spyfall",
     tagline: "Find the spy who doesn't know the location.",
   },
+  {
+    id: "flip7",
+    name: "Flip 7",
+    tagline: "Press your luck — collect 7 unique numbers, but don't bust.",
+  },
 ];
 
 export function Landing({

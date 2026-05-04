@@ -1,11 +1,19 @@
 import {
   ANSWER_SECONDS,
   DISCUSS_SECONDS,
+  FLIP7_DECISION_SECONDS,
+  FLIP7_DEFAULT_TARGET,
+  FLIP7_FORCED_DRAW_MS,
+  FLIP7_RECENT_EVENTS,
+  FLIP7_ROUND_END_SECONDS,
+  FLIP7_TARGET_SCORES,
+  FLIP7_TARGET_SECONDS,
   IMPOSTER_ANSWER_SECONDS,
   MAX_ANSWER_LEN,
   MAX_CHAT_LEN,
   MAX_NAME_LEN,
   MAX_PLAYERS,
+  MIN_PLAYERS_FLIP7,
   MIN_PLAYERS_IMPOSTER,
   MIN_PLAYERS_SPYFALL,
   RESULTS_SECONDS,
@@ -14,6 +22,12 @@ import {
 } from "../../shared/types.ts";
 import type {
   ChatMsg,
+  Flip7Awaiting,
+  Flip7Card,
+  Flip7Event,
+  Flip7Hand,
+  Flip7Modifier,
+  Flip7RoundPublic,
   GameType,
   ImposterRoundPublic,
   Phase,
@@ -25,6 +39,7 @@ import type {
 } from "../../shared/types.ts";
 import { pickRandomPrompt } from "./prompts.ts";
 import { ALL_LOCATION_NAMES, pickRandomLocation } from "./locations.ts";
+import { buildDeck, shuffleInPlace } from "./cards.ts";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -589,6 +604,546 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+// ---------------- Flip 7 ----------------
+
+interface Flip7Round {
+  roundNumber: number;
+  deck: Flip7Card[];
+  discard: Flip7Card[];
+  turnOrder: PlayerId[];
+  currentPlayerIndex: number;
+  hands: Map<PlayerId, Flip7Hand>;
+  awaiting: Flip7Awaiting;
+  flipThree?: { targetId: PlayerId; remaining: number };
+  recentEvents: Flip7Event[];
+  roundEndsAt?: number;
+}
+
+const MODIFIER_VALUES: Record<Flip7Modifier, number> = {
+  "+2": 2, "+4": 4, "+6": 6, "+8": 8, "+10": 10, "x2": 0, // x2 handled separately
+};
+
+function computeRoundScore(hand: Flip7Hand): number {
+  if (hand.status === "BUSTED") return 0;
+  let numbers = hand.numbers.reduce((s, n) => s + n, 0);
+  let bonus = 0;
+  for (const m of hand.modifiers) {
+    if (m === "x2") numbers *= 2;
+    else bonus += MODIFIER_VALUES[m];
+  }
+  if (hand.status === "FLIPPED_SEVEN") bonus += 15;
+  return numbers + bonus;
+}
+
+export class Flip7Room extends RoomBase {
+  readonly gameType = "flip7" as const;
+  readonly minPlayers = MIN_PLAYERS_FLIP7;
+  targetScore = FLIP7_DEFAULT_TARGET;
+  round?: Flip7Round;
+  gameWinnerId?: PlayerId;
+
+  startGame(by: PlayerId): { ok: boolean; error?: string } {
+    if (by !== this.hostId) return { ok: false, error: "Only the host can start" };
+    if (this.phase !== "LOBBY") return { ok: false, error: "Game already started" };
+    const connected = [...this.players.values()].filter((p) => p.connected);
+    if (connected.length < this.minPlayers) {
+      return { ok: false, error: `Need at least ${this.minPlayers} players` };
+    }
+    for (const p of this.players.values()) p.score = 0;
+    this.gameWinnerId = undefined;
+    this.beginRound(1);
+    return { ok: true };
+  }
+
+  setTargetScore(by: PlayerId, value: number): { ok: boolean; error?: string } {
+    if (by !== this.hostId) return { ok: false, error: "Only the host can change target" };
+    if (this.phase !== "LOBBY") return { ok: false, error: "Game already started" };
+    if (!FLIP7_TARGET_SCORES.includes(value as 50 | 100 | 200)) {
+      return { ok: false, error: "Invalid target score" };
+    }
+    this.targetScore = value;
+    this.emitChange();
+    return { ok: true };
+  }
+
+  nextGame(by: PlayerId): { ok: boolean; error?: string } {
+    if (by !== this.hostId) return { ok: false, error: "Only the host can reset" };
+    if (this.phase !== "GAME_OVER") return { ok: false, error: "Game still in progress" };
+    for (const p of this.players.values()) p.score = 0;
+    this.round = undefined;
+    this.gameWinnerId = undefined;
+    this.phase = "LOBBY";
+    this.clearTimer();
+    this.emitChange();
+    return { ok: true };
+  }
+
+  hit(playerId: PlayerId): { ok: boolean; error?: string } {
+    if (!this.round) return { ok: false, error: "No active round" };
+    const a = this.round.awaiting;
+    if (a.kind !== "DECISION" || a.playerId !== playerId) {
+      return { ok: false, error: "Not your turn" };
+    }
+    this.clearTimer();
+    this.drawAndApply(playerId);
+    return { ok: true };
+  }
+
+  stay(playerId: PlayerId): { ok: boolean; error?: string } {
+    if (!this.round) return { ok: false, error: "No active round" };
+    const a = this.round.awaiting;
+    if (a.kind !== "DECISION" || a.playerId !== playerId) {
+      return { ok: false, error: "Not your turn" };
+    }
+    this.clearTimer();
+    const hand = this.round.hands.get(playerId)!;
+    hand.status = "STAYED";
+    hand.roundScore = computeRoundScore(hand);
+    this.logEvent(`${this.nameOf(playerId)} stayed`);
+    this.advanceAfterPlayerDone();
+    return { ok: true };
+  }
+
+  target(playerId: PlayerId, targetId: PlayerId): { ok: boolean; error?: string } {
+    if (!this.round) return { ok: false, error: "No active round" };
+    const a = this.round.awaiting;
+    if (a.kind !== "TARGET" || a.actorId !== playerId) {
+      return { ok: false, error: "Not waiting on your target choice" };
+    }
+    if (!this.players.has(targetId)) return { ok: false, error: "Invalid target" };
+    if (a.cardKind === "GIVE_SC") {
+      const targetHand = this.round.hands.get(targetId);
+      if (!targetHand || targetHand.status !== "ACTIVE" || targetHand.hasSecondChance || targetId === playerId) {
+        return { ok: false, error: "Invalid target for Second Chance" };
+      }
+    } else {
+      const targetHand = this.round.hands.get(targetId);
+      if (!targetHand || targetHand.status !== "ACTIVE") {
+        return { ok: false, error: "Target is not active" };
+      }
+    }
+    this.clearTimer();
+    this.applyTarget(a.cardKind, playerId, targetId);
+    return { ok: true };
+  }
+
+  private beginRound(roundNumber: number) {
+    const connected = [...this.players.values()].filter((p) => p.connected);
+    const turnOrder = connected.map((p) => p.id);
+    const startIndex = ((roundNumber - 1) % turnOrder.length + turnOrder.length) % turnOrder.length;
+    shuffleInPlace(turnOrder);
+    const deck = buildDeck();
+    shuffleInPlace(deck);
+    const hands = new Map<PlayerId, Flip7Hand>();
+    for (const p of connected) {
+      hands.set(p.id, {
+        numbers: [],
+        modifiers: [],
+        hasSecondChance: false,
+        status: "ACTIVE",
+        roundScore: 0,
+      });
+    }
+    this.round = {
+      roundNumber,
+      deck,
+      discard: [],
+      turnOrder,
+      currentPlayerIndex: startIndex < turnOrder.length ? startIndex : 0,
+      hands,
+      awaiting: {
+        kind: "DECISION",
+        playerId: turnOrder[0],
+        deadline: Date.now() + FLIP7_DECISION_SECONDS * 1000,
+      },
+      recentEvents: [],
+    };
+    this.round.currentPlayerIndex = 0;
+    this.round.awaiting = {
+      kind: "DECISION",
+      playerId: turnOrder[0],
+      deadline: Date.now() + FLIP7_DECISION_SECONDS * 1000,
+    };
+    this.phase = "ROUND";
+    this.logEvent(`Round ${roundNumber} begins — ${this.nameOf(turnOrder[0])} starts`);
+    this.startDecisionTimer();
+    this.emitChange();
+  }
+
+  private startDecisionTimer() {
+    this.clearTimer();
+    this.timer = setTimeout(() => {
+      if (!this.round) return;
+      const a = this.round.awaiting;
+      if (a.kind !== "DECISION") return;
+      const hand = this.round.hands.get(a.playerId);
+      if (!hand) return;
+      hand.status = "STAYED";
+      hand.roundScore = computeRoundScore(hand);
+      this.logEvent(`${this.nameOf(a.playerId)} timed out — auto-stay`);
+      this.advanceAfterPlayerDone();
+    }, FLIP7_DECISION_SECONDS * 1000);
+  }
+
+  private startTargetTimer() {
+    this.clearTimer();
+    this.timer = setTimeout(() => {
+      if (!this.round) return;
+      const a = this.round.awaiting;
+      if (a.kind !== "TARGET") return;
+      let target: PlayerId | undefined;
+      if (a.cardKind === "GIVE_SC") {
+        const eligible = [...this.round.hands.entries()].find(
+          ([id, h]) => id !== a.actorId && h.status === "ACTIVE" && !h.hasSecondChance
+        );
+        target = eligible?.[0];
+      } else {
+        target = a.actorId;
+      }
+      if (target) {
+        this.logEvent(`${this.nameOf(a.actorId)} idled — auto-targeted ${this.nameOf(target)}`);
+        this.applyTarget(a.cardKind, a.actorId, target);
+      } else {
+        this.logEvent(`${this.nameOf(a.actorId)} idled — Second Chance discarded`);
+        this.resumeAfterAction(a.actorId);
+      }
+    }, FLIP7_TARGET_SECONDS * 1000);
+  }
+
+  private drawCardFromDeck(): Flip7Card | undefined {
+    if (!this.round) return undefined;
+    if (this.round.deck.length === 0) {
+      if (this.round.discard.length === 0) return undefined;
+      this.round.deck = this.round.discard;
+      this.round.discard = [];
+      shuffleInPlace(this.round.deck);
+      this.logEvent("Deck reshuffled");
+    }
+    return this.round.deck.pop();
+  }
+
+  private drawAndApply(drawerId: PlayerId) {
+    if (!this.round) return;
+    const card = this.drawCardFromDeck();
+    if (!card) {
+      // Defensive: deck and discard both empty. End round.
+      this.endRound("ALL_STOPPED");
+      return;
+    }
+    const hand = this.round.hands.get(drawerId);
+    if (!hand) return;
+
+    if (card.kind === "number") {
+      if (hand.numbers.includes(card.value)) {
+        // Bust check
+        if (hand.hasSecondChance) {
+          hand.hasSecondChance = false;
+          this.round.discard.push(card);
+          this.logEvent(`${this.nameOf(drawerId)} would bust on ${card.value} — Second Chance saves them`);
+          hand.roundScore = computeRoundScore(hand);
+          this.continueAfterDraw(drawerId);
+        } else {
+          hand.status = "BUSTED";
+          hand.roundScore = 0;
+          this.round.discard.push(card);
+          this.logEvent(`${this.nameOf(drawerId)} BUSTED on duplicate ${card.value}`);
+          this.handleDrawerStopped(drawerId);
+        }
+      } else {
+        hand.numbers.push(card.value);
+        if (hand.numbers.length === 7) {
+          hand.status = "FLIPPED_SEVEN";
+          hand.roundScore = computeRoundScore(hand);
+          this.logEvent(`${this.nameOf(drawerId)} FLIPPED 7! Round ends.`);
+          // Force any other ACTIVE players to bank their current scores (they "stayed by force").
+          for (const [id, h] of this.round.hands) {
+            if (id !== drawerId && h.status === "ACTIVE") {
+              h.status = "STAYED";
+              h.roundScore = computeRoundScore(h);
+            }
+          }
+          this.endRound("FLIP_7");
+        } else {
+          hand.roundScore = computeRoundScore(hand);
+          this.continueAfterDraw(drawerId);
+        }
+      }
+    } else if (card.kind === "modifier") {
+      hand.modifiers.push(card.modifier);
+      hand.roundScore = computeRoundScore(hand);
+      this.logEvent(`${this.nameOf(drawerId)} drew ${card.modifier}`);
+      this.continueAfterDraw(drawerId);
+    } else {
+      // Action card — does NOT consume the turn (decision B).
+      this.handleActionDraw(drawerId, card.action);
+    }
+  }
+
+  private continueAfterDraw(drawerId: PlayerId) {
+    if (!this.round) return;
+    if (this.round.flipThree && this.round.flipThree.targetId === drawerId) {
+      this.round.flipThree.remaining -= 1;
+      if (this.round.flipThree.remaining <= 0) {
+        this.round.flipThree = undefined;
+        // Return to turn-holder's decision
+        this.beginCurrentPlayerDecision();
+      } else {
+        this.scheduleForcedDraw();
+      }
+    } else {
+      // Normal turn — same player decides again
+      this.beginDecisionFor(drawerId);
+    }
+  }
+
+  private handleDrawerStopped(drawerId: PlayerId) {
+    if (!this.round) return;
+    if (this.round.flipThree && this.round.flipThree.targetId === drawerId) {
+      // Stop the sequence (target busted)
+      this.round.flipThree = undefined;
+      // Return to turn-holder for their continued decision (they didn't lose their turn)
+      this.beginCurrentPlayerDecision();
+    } else {
+      // Normal turn ended (busted)
+      this.advanceAfterPlayerDone();
+    }
+  }
+
+  private handleActionDraw(actorId: PlayerId, kind: "FREEZE" | "FLIP3" | "SECOND_CHANCE") {
+    if (!this.round) return;
+    if (kind === "FREEZE" || kind === "FLIP3") {
+      this.logEvent(`${this.nameOf(actorId)} drew ${kind === "FREEZE" ? "Freeze" : "Flip Three"}`);
+      this.round.awaiting = {
+        kind: "TARGET",
+        actorId,
+        cardKind: kind,
+        deadline: Date.now() + FLIP7_TARGET_SECONDS * 1000,
+      };
+      this.startTargetTimer();
+      this.emitChange();
+      return;
+    }
+    // SECOND_CHANCE
+    const hand = this.round.hands.get(actorId)!;
+    if (!hand.hasSecondChance) {
+      hand.hasSecondChance = true;
+      this.logEvent(`${this.nameOf(actorId)} drew Second Chance`);
+      this.continueAfterDraw(actorId);
+      return;
+    }
+    // Already has one — must give to another active player without one
+    const eligible = [...this.round.hands.entries()].find(
+      ([id, h]) => id !== actorId && h.status === "ACTIVE" && !h.hasSecondChance
+    );
+    if (!eligible) {
+      this.logEvent(`${this.nameOf(actorId)} drew Second Chance — no eligible recipient, discarded`);
+      this.continueAfterDraw(actorId);
+      return;
+    }
+    this.logEvent(`${this.nameOf(actorId)} drew Second Chance — must give it away`);
+    this.round.awaiting = {
+      kind: "TARGET",
+      actorId,
+      cardKind: "GIVE_SC",
+      deadline: Date.now() + FLIP7_TARGET_SECONDS * 1000,
+    };
+    this.startTargetTimer();
+    this.emitChange();
+  }
+
+  private applyTarget(
+    cardKind: "FREEZE" | "FLIP3" | "GIVE_SC",
+    actorId: PlayerId,
+    targetId: PlayerId
+  ) {
+    if (!this.round) return;
+    if (cardKind === "FREEZE") {
+      const target = this.round.hands.get(targetId)!;
+      target.status = "FROZEN";
+      target.roundScore = computeRoundScore(target);
+      this.logEvent(`${this.nameOf(actorId)} froze ${this.nameOf(targetId)}`);
+      this.resumeAfterAction(actorId);
+    } else if (cardKind === "FLIP3") {
+      this.logEvent(`${this.nameOf(actorId)} Flip-Three'd ${this.nameOf(targetId)}`);
+      this.round.flipThree = { targetId, remaining: 3 };
+      this.scheduleForcedDraw();
+    } else {
+      // GIVE_SC
+      const target = this.round.hands.get(targetId)!;
+      target.hasSecondChance = true;
+      this.logEvent(`${this.nameOf(actorId)} gave Second Chance to ${this.nameOf(targetId)}`);
+      this.resumeAfterAction(actorId);
+    }
+  }
+
+  private resumeAfterAction(actorId: PlayerId) {
+    if (!this.round) return;
+    // Per decision B: action does not end the actor's turn.
+    if (this.round.flipThree) {
+      this.scheduleForcedDraw();
+    } else {
+      // Resume actor's turn (who is the turn-holder *unless* this action was triggered
+      // from inside a Flip Three — but that case is handled via the flipThree branch above).
+      this.beginDecisionFor(actorId);
+    }
+  }
+
+  private scheduleForcedDraw() {
+    if (!this.round || !this.round.flipThree) return;
+    const targetId = this.round.flipThree.targetId;
+    this.round.awaiting = { kind: "FORCED_DRAWING", targetId };
+    this.clearTimer();
+    this.timer = setTimeout(() => {
+      this.drawAndApply(targetId);
+    }, FLIP7_FORCED_DRAW_MS);
+    this.emitChange();
+  }
+
+  private beginDecisionFor(playerId: PlayerId) {
+    if (!this.round) return;
+    const hand = this.round.hands.get(playerId);
+    if (!hand || hand.status !== "ACTIVE") {
+      // Player can no longer act — advance turn instead.
+      this.advanceAfterPlayerDone();
+      return;
+    }
+    this.round.awaiting = {
+      kind: "DECISION",
+      playerId,
+      deadline: Date.now() + FLIP7_DECISION_SECONDS * 1000,
+    };
+    this.startDecisionTimer();
+    this.emitChange();
+  }
+
+  private beginCurrentPlayerDecision() {
+    if (!this.round) return;
+    const turnHolder = this.round.turnOrder[this.round.currentPlayerIndex];
+    this.beginDecisionFor(turnHolder);
+  }
+
+  private advanceAfterPlayerDone() {
+    if (!this.round) return;
+    if (!this.anyoneActive()) {
+      this.endRound("ALL_STOPPED");
+      return;
+    }
+    this.advanceTurn();
+  }
+
+  private anyoneActive(): boolean {
+    if (!this.round) return false;
+    for (const h of this.round.hands.values()) if (h.status === "ACTIVE") return true;
+    return false;
+  }
+
+  private advanceTurn() {
+    if (!this.round) return;
+    for (let step = 0; step < this.round.turnOrder.length; step++) {
+      this.round.currentPlayerIndex =
+        (this.round.currentPlayerIndex + 1) % this.round.turnOrder.length;
+      const id = this.round.turnOrder[this.round.currentPlayerIndex];
+      const hand = this.round.hands.get(id);
+      if (hand?.status === "ACTIVE") {
+        this.beginDecisionFor(id);
+        return;
+      }
+    }
+    this.endRound("ALL_STOPPED");
+  }
+
+  private endRound(_reason: "FLIP_7" | "ALL_STOPPED") {
+    if (!this.round) return;
+    this.clearTimer();
+    // Finalize round scores (for any still-ACTIVE players being banked)
+    for (const [id, hand] of this.round.hands) {
+      if (hand.status === "ACTIVE") {
+        hand.status = "STAYED";
+      }
+      hand.roundScore = computeRoundScore(hand);
+      const player = this.players.get(id);
+      if (player) player.score += hand.roundScore;
+    }
+    this.logEvent(`Round ${this.round.roundNumber} complete`);
+    // Winner check
+    let winnerId: PlayerId | undefined;
+    let topScore = -1;
+    for (const p of this.players.values()) {
+      if (p.score >= this.targetScore && p.score > topScore) {
+        topScore = p.score;
+        winnerId = p.id;
+      }
+    }
+    if (winnerId) {
+      this.gameWinnerId = winnerId;
+      this.phase = "GAME_OVER";
+      this.emitChange();
+      return;
+    }
+    // Otherwise schedule next round
+    this.round.roundEndsAt = Date.now() + FLIP7_ROUND_END_SECONDS * 1000;
+    this.phase = "ROUND_END";
+    this.emitChange();
+    this.timer = setTimeout(() => {
+      const next = (this.round?.roundNumber ?? 0) + 1;
+      this.beginRound(next);
+    }, FLIP7_ROUND_END_SECONDS * 1000);
+  }
+
+  private logEvent(text: string) {
+    if (!this.round) return;
+    this.round.recentEvents.push({ ts: Date.now(), text });
+    if (this.round.recentEvents.length > FLIP7_RECENT_EVENTS) {
+      this.round.recentEvents.shift();
+    }
+  }
+
+  private nameOf(id: PlayerId): string {
+    return this.players.get(id)?.name ?? "?";
+  }
+
+  publicStateFor(viewerId: PlayerId): RoomStatePublic {
+    const base = this.baseStateFor(viewerId);
+    let flip7Round: Flip7RoundPublic | undefined;
+    if (this.round) {
+      const hands: Record<PlayerId, Flip7Hand> = {};
+      for (const [id, h] of this.round.hands) {
+        hands[id] = {
+          numbers: [...h.numbers],
+          modifiers: [...h.modifiers],
+          hasSecondChance: h.hasSecondChance,
+          status: h.status,
+          roundScore: h.roundScore,
+        };
+      }
+      const roundOverIn =
+        this.phase === "ROUND_END" && this.round.roundEndsAt
+          ? Math.max(0, this.round.roundEndsAt - Date.now())
+          : undefined;
+      flip7Round = {
+        roundNumber: this.round.roundNumber,
+        targetScore: this.targetScore,
+        turnOrder: [...this.round.turnOrder],
+        currentPlayerIndex: this.round.currentPlayerIndex,
+        hands,
+        awaiting: this.round.awaiting,
+        flipThree: this.round.flipThree
+          ? { targetId: this.round.flipThree.targetId, remaining: this.round.flipThree.remaining }
+          : undefined,
+        deckRemaining: this.round.deck.length + this.round.discard.length,
+        recentEvents: [...this.round.recentEvents],
+        roundOverIn,
+        gameWinnerId: this.phase === "GAME_OVER" ? this.gameWinnerId : undefined,
+      };
+    }
+    return {
+      ...base,
+      flip7Round,
+      flip7TargetScore: this.targetScore,
+    };
+  }
+}
+
 export class RoomStore {
   private rooms = new Map<RoomCode, RoomBase>();
 
@@ -597,7 +1152,9 @@ export class RoomStore {
     const room: RoomBase =
       gameType === "spyfall"
         ? new SpyfallRoom(code, hostId)
-        : new ImposterRoom(code, hostId);
+        : gameType === "flip7"
+          ? new Flip7Room(code, hostId)
+          : new ImposterRoom(code, hostId);
     this.rooms.set(code, room);
     return room;
   }

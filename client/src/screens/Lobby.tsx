@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AppSocket } from "../socket";
 import type { RoomStatePublic } from "../../../shared/types";
+import { FLIP7_TARGET_SCORES } from "../../../shared/types";
 
 export function Lobby({
   state,
@@ -74,14 +75,92 @@ export function Lobby({
         </button>
       </div>
 
+      {state.gameType === "flip7" && (
+        <div className="card flex flex-col gap-3">
+          <div className="text-sm font-medium text-ink/70">First to win</div>
+          <div className="flex gap-2">
+            {FLIP7_TARGET_SCORES.map((s) => {
+              const selected = state.flip7TargetScore === s;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  disabled={!isHost}
+                  onClick={() =>
+                    socket.emit("flip7:set-target", { targetScore: s })
+                  }
+                  className={[
+                    "flex-1 rounded-xl border px-3 py-2 text-center font-semibold transition",
+                    selected
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-ink/10 bg-white text-ink/70",
+                    isHost ? "" : "cursor-not-allowed opacity-70",
+                  ].join(" ")}
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+          {!isHost && (
+            <p className="text-center text-xs text-ink/40">
+              Only the host can change the target score.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <div className="mb-1 flex items-center justify-between">
           <div className="text-sm font-medium text-ink/70">How to play</div>
           <div className="text-xs uppercase tracking-widest text-ink/40">
-            {state.gameType === "spyfall" ? "Spyfall" : "Impromptser"}
+            {state.gameType === "spyfall"
+              ? "Spyfall"
+              : state.gameType === "flip7"
+                ? "Flip 7"
+                : "Impromptser"}
           </div>
         </div>
-        {state.gameType === "spyfall" ? (
+        {state.gameType === "flip7" ? (
+          <ol className="flex flex-col gap-2 text-sm text-ink/70">
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">1.</span>
+              <span>
+                On your turn, <span className="font-semibold">HIT</span> to draw a card or{" "}
+                <span className="font-semibold">STAY</span> to bank what you have.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">2.</span>
+              <span>
+                Number cards score their face value. Draw a duplicate number and
+                you <span className="font-semibold text-danger">BUST</span> — your round score becomes 0.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">3.</span>
+              <span>
+                Modifiers (<span className="font-mono">+2</span>…<span className="font-mono">+10</span>,{" "}
+                <span className="font-mono">x2</span>) add to your score. Action cards (Freeze,
+                Flip Three, Second Chance) target a player when drawn.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">4.</span>
+              <span>
+                Collect <span className="font-semibold">7 unique numbers</span> (FLIP 7!) and
+                the round ends with a +15 bonus.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-accent">5.</span>
+              <span>
+                First player to <span className="font-semibold">{state.flip7TargetScore ?? 200}</span> total
+                points wins the game.
+              </span>
+            </li>
+          </ol>
+        ) : state.gameType === "spyfall" ? (
           <ol className="flex flex-col gap-2 text-sm text-ink/70">
             <li className="flex gap-2">
               <span className="font-bold text-accent">1.</span>
