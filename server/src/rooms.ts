@@ -663,6 +663,7 @@ export class Flip7Room extends RoomBase {
   targetScore = FLIP7_DEFAULT_TARGET;
   round?: Flip7Round;
   gameWinnerId?: PlayerId;
+  chat: ChatMsg[] = [];
 
   startGame(by: PlayerId): { ok: boolean; error?: string } {
     if (by !== this.hostId) return { ok: false, error: "Only the host can start" };
@@ -673,6 +674,7 @@ export class Flip7Room extends RoomBase {
     }
     for (const p of this.players.values()) p.score = 0;
     this.gameWinnerId = undefined;
+    this.chat = [];
     this.beginRound(1);
     return { ok: true };
   }
@@ -694,8 +696,28 @@ export class Flip7Room extends RoomBase {
     for (const p of this.players.values()) p.score = 0;
     this.round = undefined;
     this.gameWinnerId = undefined;
+    this.chat = [];
     this.phase = "LOBBY";
     this.clearTimer();
+    this.emitChange();
+    return { ok: true };
+  }
+
+  override postChat(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
+    if (this.phase !== "ROUND" && this.phase !== "ROUND_END" && this.phase !== "GAME_OVER") {
+      return { ok: false, error: "Chat is only available during the game" };
+    }
+    const player = this.players.get(playerId);
+    if (!player) return { ok: false, error: "Not in this room" };
+    const trimmed = sanitizeText(text, MAX_CHAT_LEN).trim();
+    if (!trimmed) return { ok: false, error: "Empty message" };
+    this.chat.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      playerId,
+      playerName: player.name,
+      text: trimmed,
+      ts: Date.now(),
+    });
     this.emitChange();
     return { ok: true };
   }
@@ -1202,6 +1224,7 @@ export class Flip7Room extends RoomBase {
           : undefined,
         deckRemaining: this.round.deck.length + this.round.discard.length,
         recentEvents: [...this.round.recentEvents],
+        chat: [...this.chat],
         roundOverIn,
         gameWinnerId: this.phase === "GAME_OVER" ? this.gameWinnerId : undefined,
       };

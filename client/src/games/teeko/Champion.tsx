@@ -20,11 +20,11 @@ export function TeekoChampion({
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col gap-4 p-4">
-      <div className="card flex flex-col items-center gap-2 border-amber-400 bg-amber-50 py-6 text-center">
+      <div className="card flex flex-col items-center gap-2 border-amber-400 bg-amber-50 py-6 text-center dark:border-amber-600 dark:bg-amber-900/30">
         <div className="text-4xl">🏆</div>
         <div className="text-xl font-black">CHAMPION SHIRT</div>
         <DrawingDisplay strokes={champion.shirt.drawing.strokes} size={300} />
-        <div className="rounded-lg bg-white px-3 py-2 text-lg font-semibold">
+        <div className="rounded-lg bg-surface px-3 py-2 text-lg font-semibold">
           "{champion.shirt.slogan.text}"
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AppSocket } from "../../socket";
 import type { RoomStatePublic } from "../../../../shared/types";
+import { ChatPanel } from "../../components/ChatPanel";
 import { PlayerRow } from "./PlayerRow";
 
 export function Flip7Round({
@@ -78,7 +79,7 @@ export function Flip7Round({
   })();
 
   return (
-    <div className="mx-auto flex min-h-full max-w-md flex-col gap-3 p-3 pb-4">
+    <div className="mx-auto flex min-h-full max-w-md flex-col gap-3 p-3 pb-44">
       {/* Header */}
       <div className="card flex flex-col gap-1 py-3">
         <div className="flex items-center justify-between">
@@ -152,7 +153,7 @@ export function Flip7Round({
           </div>
         </div>
       ) : isMyDecision ? (
-        <div className="sticky bottom-2 mt-1">
+        <div className="sticky bottom-40 mt-1">
           <div className="card flex flex-col gap-3 border-accent bg-accent/5 py-4">
             <div className="text-center text-sm font-semibold">
               YOUR TURN  ·  {myHand?.numbers.length ?? 0}/7 unique  ·  Hand{" "}
@@ -175,7 +176,7 @@ export function Flip7Round({
           </div>
         </div>
       ) : isMyTarget ? (
-        <div className="sticky bottom-2 mt-1">
+        <div className="sticky bottom-40 mt-1">
           <div className="card flex flex-col gap-2 border-accent bg-accent/5 py-3">
             <div className="text-center text-sm font-semibold">
               {awaiting.kind === "TARGET" && awaiting.cardKind === "FREEZE" && "You drew FREEZE — pick a target above"}
@@ -191,6 +192,17 @@ export function Flip7Round({
         </div>
       )}
 
+      {/* Always-visible match chat at the bottom */}
+      <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-md border-t border-ink/10 bg-paper/95 px-3 pb-2 pt-2 backdrop-blur">
+        <ChatPanel
+          messages={round.chat}
+          socket={socket}
+          players={state.players}
+          hideHeader
+          listClassName="max-h-24 min-h-[2.5rem]"
+          emptyPlaceholder="Trash talk goes here…"
+        />
+      </div>
     </div>
   );
 }

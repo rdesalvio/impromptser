@@ -121,6 +121,7 @@ export interface Flip7RoundPublic {
   flipThree?: { targetId: PlayerId; remaining: number };
   deckRemaining: number;
   recentEvents: Flip7Event[];
+  chat: ChatMsg[];
   // Round-end / game-over visibility:
   roundOverIn?: number;          // ms remaining before next round (ROUND_END only)
   gameWinnerId?: PlayerId;       // GAME_OVER only

@@ -130,7 +130,7 @@ export function Landing({
                     "rounded-2xl border px-4 py-3 text-left transition",
                     gameType === g.id
                       ? "border-accent bg-accent/10"
-                      : "border-ink/10 bg-white hover:border-accent/40",
+                      : "border-ink/10 bg-surface hover:border-accent/40",
                   ].join(" ")}
                 >
                   <div className="font-semibold">{g.name}</div>

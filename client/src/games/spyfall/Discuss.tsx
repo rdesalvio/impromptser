@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { AppSocket } from "../../socket";
 import type { RoomStatePublic } from "../../../../shared/types";
-import { MAX_CHAT_LEN } from "../../../../shared/types";
+import { ChatPanel } from "../../components/ChatPanel";
 import { Timer } from "../../components/Timer";
 
 export function SpyfallDiscuss({
@@ -13,20 +13,7 @@ export function SpyfallDiscuss({
 }) {
   const round = state.spyfallRound!;
   const isSpy = round.myRole === "SPY";
-  const [chatText, setChatText] = useState("");
   const [showLocations, setShowLocations] = useState(false);
-  const chatRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight });
-  }, [round.chat.length]);
-
-  function sendChat() {
-    const t = chatText.trim();
-    if (!t) return;
-    socket.emit("chat:send", { text: t });
-    setChatText("");
-  }
 
   function callVote() {
     if (!confirm("End discussion and start voting now?")) return;
@@ -47,7 +34,7 @@ export function SpyfallDiscuss({
           "card flex items-center justify-between gap-3 py-3",
           isSpy
             ? "border-danger/30 bg-danger/5"
-            : "border-ink/10 bg-white",
+            : "border-ink/10 bg-surface",
         ].join(" ")}
       >
         <div className="flex flex-col">
@@ -70,7 +57,7 @@ export function SpyfallDiscuss({
         {isSpy && (
           <button
             onClick={() => setShowLocations((v) => !v)}
-            className="rounded-lg border border-danger/30 bg-white px-2 py-1 text-xs font-medium text-danger"
+            className="rounded-lg border border-danger/30 bg-surface px-2 py-1 text-xs font-medium text-danger"
           >
             {showLocations ? "Hide" : "Locations"}
           </button>
@@ -92,41 +79,15 @@ export function SpyfallDiscuss({
         </div>
       )}
 
-      <div className="card flex flex-1 flex-col gap-2">
-        <div className="text-xs font-medium text-ink/60">Discussion</div>
-        <div
-          ref={chatRef}
-          className="max-h-[40vh] min-h-[12rem] flex-1 overflow-y-auto rounded-xl bg-ink/5 p-2"
-        >
-          {round.chat.length === 0 ? (
-            <div className="px-1 py-2 text-center text-xs text-ink/40">
-              Start asking questions to root out the spy…
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {round.chat.map((m) => (
-                <li key={m.id} className="text-sm">
-                  <span className="font-semibold">{m.playerName}:</span>{" "}
-                  <span>{m.text}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <input
-            className="input flex-1"
-            placeholder="Ask a question…"
-            maxLength={MAX_CHAT_LEN}
-            value={chatText}
-            onChange={(e) => setChatText(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendChat()}
-          />
-          <button className="btn-secondary" onClick={sendChat}>
-            Send
-          </button>
-        </div>
-      </div>
+      <ChatPanel
+        className="card flex-1"
+        listClassName="max-h-[40vh] min-h-[12rem]"
+        messages={round.chat}
+        socket={socket}
+        players={state.players}
+        emptyPlaceholder="Start asking questions to root out the spy…"
+        inputPlaceholder="Ask a question…"
+      />
 
       <button className="btn-primary" onClick={callVote}>
         Call vote

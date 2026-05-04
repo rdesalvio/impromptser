@@ -108,7 +108,7 @@ function ShirtCard({
     <div
       className={[
         "card flex flex-col gap-2",
-        highlight ? "border-amber-400 bg-amber-50" : "",
+        highlight ? "border-amber-400 bg-amber-50 dark:border-amber-600 dark:bg-amber-900/30" : "",
       ].join(" ")}
     >
       <div className="text-xs font-bold uppercase tracking-widest text-ink/50">
@@ -141,11 +141,11 @@ function ShirtChoice({
 }) {
   const border = revealed
     ? isWinner
-      ? "border-emerald-400 bg-emerald-50"
-      : "border-ink/10 bg-white opacity-70"
+      ? "border-emerald-400 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-900/30"
+      : "border-ink/10 bg-surface opacity-70"
     : isMyVote
       ? "border-accent bg-accent/5"
-      : "border-ink/15 bg-white";
+      : "border-ink/15 bg-surface";
   return (
     <div className={`card flex flex-col gap-2 ${border}`}>
       <div className="flex items-center justify-between">

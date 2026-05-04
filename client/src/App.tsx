@@ -18,6 +18,7 @@ import { TeekoWriting } from "./games/teeko/Writing";
 import { TeekoComposing } from "./games/teeko/Composing";
 import { TeekoBracket } from "./games/teeko/Bracket";
 import { TeekoChampion } from "./games/teeko/Champion";
+import { ThemeToggle } from "./components/ThemeToggle";
 
 const STORAGE_KEY = "impromptser:credentials";
 
@@ -173,13 +174,14 @@ export default function App() {
 
   return (
     <div className="min-h-full">
+      <ThemeToggle />
       {!connected && (
         <div className="bg-danger/10 px-3 py-1 text-center text-xs text-danger">
           Reconnecting…
         </div>
       )}
       {credentials && state && (
-        <div className="flex items-center justify-between px-4 pt-3 text-xs text-ink/40">
+        <div className="flex items-center justify-between gap-4 pl-16 pr-4 pt-3 text-xs text-ink/40">
           <span className="font-mono">{state.code}</span>
           <button onClick={leave} className="underline">
             Leave

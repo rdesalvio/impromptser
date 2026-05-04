@@ -70,7 +70,7 @@ export function SpyfallVoting({
                     ? "cursor-not-allowed border-ink/10 bg-ink/5 text-ink/50"
                     : showSelected
                       ? "border-accent bg-accent/10"
-                      : "border-ink/10 bg-white hover:border-accent/40",
+                      : "border-ink/10 bg-surface hover:border-accent/40",
                 ].join(" ")}
               >
                 <div className="flex items-start gap-3">

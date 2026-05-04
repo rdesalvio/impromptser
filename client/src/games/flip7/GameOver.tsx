@@ -1,5 +1,6 @@
 import type { AppSocket } from "../../socket";
 import type { RoomStatePublic } from "../../../../shared/types";
+import { ChatPanel } from "../../components/ChatPanel";
 
 export function Flip7GameOver({
   state,
@@ -14,8 +15,8 @@ export function Flip7GameOver({
   const winner = players.find((p) => p.id === round.gameWinnerId);
 
   return (
-    <div className="mx-auto flex min-h-full max-w-md flex-col gap-4 p-4">
-      <div className="card flex flex-col items-center gap-2 border-amber-300 bg-amber-50 py-8 text-center">
+    <div className="mx-auto flex min-h-full max-w-md flex-col gap-4 p-4 pb-44">
+      <div className="card flex flex-col items-center gap-2 border-amber-300 bg-amber-50 py-8 text-center dark:border-amber-600 dark:bg-amber-900/30">
         <div className="text-5xl">🏆</div>
         <div className="text-2xl font-black">{winner?.name ?? "?"} wins!</div>
         <div className="text-sm text-ink/60">
@@ -58,6 +59,17 @@ export function Flip7GameOver({
           Waiting for host to start a new game…
         </div>
       )}
+
+      <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-md border-t border-ink/10 bg-paper/95 px-3 pb-2 pt-2 backdrop-blur">
+        <ChatPanel
+          messages={round.chat}
+          socket={socket}
+          players={state.players}
+          hideHeader
+          listClassName="max-h-24 min-h-[2.5rem]"
+          emptyPlaceholder="Recap the game…"
+        />
+      </div>
     </div>
   );
 }

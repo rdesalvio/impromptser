@@ -12,9 +12,9 @@ const STATUS_LABEL: Record<Flip7Hand["status"], string> = {
 const STATUS_BADGE_CLASS: Record<Flip7Hand["status"], string> = {
   ACTIVE: "",
   STAYED: "bg-ink/10 text-ink/60",
-  FROZEN: "bg-blue-100 text-blue-700",
+  FROZEN: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200",
   BUSTED: "bg-danger/10 text-danger",
-  FLIPPED_SEVEN: "bg-amber-100 text-amber-700",
+  FLIPPED_SEVEN: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200",
 };
 
 export function PlayerRow({
@@ -47,8 +47,8 @@ export function PlayerRow({
           : isCurrent
             ? "border-accent bg-accent/5"
             : isForcedDrawer
-              ? "border-purple-300 bg-purple-50"
-              : "border-ink/10 bg-white",
+              ? "border-purple-300 bg-purple-50 dark:border-purple-600 dark:bg-purple-900/30"
+              : "border-ink/10 bg-surface",
         dim ? "opacity-70" : "",
       ].join(" ")}
     >

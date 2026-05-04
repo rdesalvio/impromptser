@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppSocket } from "../socket";
 import type { RoomStatePublic } from "../../../shared/types";
-import { MAX_CHAT_LEN } from "../../../shared/types";
+import { ChatPanel } from "../components/ChatPanel";
 import { Timer } from "../components/Timer";
 
 export function Voting({
@@ -12,13 +12,7 @@ export function Voting({
   socket: AppSocket;
 }) {
   const round = state.imposterRound!;
-  const [chatText, setChatText] = useState("");
   const [pendingVote, setPendingVote] = useState<string | null>(null);
-  const chatRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight });
-  }, [round.chat.length]);
 
   const myConfirmedVote = round.votes[state.myId] ?? null;
   useEffect(() => {
@@ -29,13 +23,6 @@ export function Voting({
     if (targetPlayerId === state.myId) return;
     setPendingVote(targetPlayerId);
     socket.emit("vote:cast", { targetPlayerId });
-  }
-
-  function sendChat() {
-    const t = chatText.trim();
-    if (!t) return;
-    socket.emit("chat:send", { text: t });
-    setChatText("");
   }
 
   const playerNameById: Record<string, string> = Object.fromEntries(
@@ -88,7 +75,7 @@ export function Voting({
                     ? "cursor-not-allowed border-ink/10 bg-ink/5 text-ink/50"
                     : showSelected
                       ? "border-accent bg-accent/10"
-                      : "border-ink/10 bg-white hover:border-accent/40",
+                      : "border-ink/10 bg-surface hover:border-accent/40",
                 ].join(" ")}
               >
                 <div className="flex items-start gap-3">
@@ -121,43 +108,13 @@ export function Voting({
         })}
       </ul>
 
-      <div className="card flex flex-col gap-2">
-        <div className="text-xs font-medium text-ink/60">Chat</div>
-        <div
-          ref={chatRef}
-          className="max-h-40 min-h-[5rem] overflow-y-auto rounded-xl bg-ink/5 p-2"
-        >
-          {round.chat.length === 0 ? (
-            <div className="px-1 py-2 text-center text-xs text-ink/40">
-              Accuse, defend, distract…
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {round.chat.map((m) => (
-                <li key={m.id} className="text-sm">
-                  <span className="font-semibold">
-                    {playerNameById[m.playerId] ?? m.playerName}:
-                  </span>{" "}
-                  <span>{m.text}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <input
-            className="input flex-1"
-            placeholder="Say something…"
-            maxLength={MAX_CHAT_LEN}
-            value={chatText}
-            onChange={(e) => setChatText(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendChat()}
-          />
-          <button className="btn-secondary" onClick={sendChat}>
-            Send
-          </button>
-        </div>
-      </div>
+      <ChatPanel
+        className="card"
+        messages={round.chat}
+        socket={socket}
+        players={state.players}
+        emptyPlaceholder="Accuse, defend, distract…"
+      />
     </div>
   );
 }

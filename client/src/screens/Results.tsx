@@ -59,7 +59,7 @@ export function Results({ state }: { state: RoomStatePublic }) {
                   "flex items-center justify-between rounded-xl border px-3 py-2",
                   isImposter
                     ? "border-danger/40 bg-danger/5"
-                    : "border-ink/10 bg-white",
+                    : "border-ink/10 bg-surface",
                 ].join(" ")}
               >
                 <div>

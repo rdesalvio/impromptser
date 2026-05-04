@@ -93,7 +93,7 @@ export function Lobby({
                     "flex-1 rounded-xl border px-3 py-2 text-center font-semibold transition",
                     selected
                       ? "border-accent bg-accent/10 text-accent"
-                      : "border-ink/10 bg-white text-ink/70",
+                      : "border-ink/10 bg-surface text-ink/70",
                     isHost ? "" : "cursor-not-allowed opacity-70",
                   ].join(" ")}
                 >
