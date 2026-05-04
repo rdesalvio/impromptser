@@ -13,6 +13,7 @@ import type {
 } from "../../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
+const ROOM_GRACE_MS = 60_000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
@@ -171,7 +172,16 @@ io.on("connection", (socket) => {
     const room = store.get(data.roomCode);
     if (!room) return;
     room.markDisconnected(data.playerId);
-    if (room.isEmpty()) store.delete(data.roomCode);
+    if (room.isEmpty()) {
+      const code = data.roomCode;
+      // Grace window so a player switching apps on mobile (and dropping their socket)
+      // can rejoin their freshly-created room. Re-check on expiry — if anyone is
+      // back, we leave the room alone.
+      setTimeout(() => {
+        const r = store.get(code);
+        if (r && r.isEmpty()) store.delete(code);
+      }, ROOM_GRACE_MS);
+    }
   });
 });
 

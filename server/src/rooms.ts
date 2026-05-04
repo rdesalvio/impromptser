@@ -132,14 +132,15 @@ export abstract class RoomBase {
     const p = this.players.get(playerId);
     if (!p) return;
     p.connected = false;
-    if (this.phase === "LOBBY") {
-      this.players.delete(playerId);
-      if (playerId === this.hostId) {
-        const next = [...this.players.values()].find((pp) => pp.connected);
-        if (next) {
-          this.hostId = next.id;
-          next.isHost = true;
-        }
+    // Migrate host to another connected player if possible — but never delete the
+    // disconnecting player. Keeping their slot is what lets them rejoin via the
+    // grace window (e.g. mobile tab suspension when sharing the link).
+    if (playerId === this.hostId) {
+      const next = [...this.players.values()].find((pp) => pp.connected);
+      if (next) {
+        this.hostId = next.id;
+        next.isHost = true;
+        p.isHost = false;
       }
     }
     this.emitChange();
