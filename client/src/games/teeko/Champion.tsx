@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import type { AppSocket } from "../../socket";
 import type { RoomStatePublic } from "../../../../shared/types";
 import { DrawingDisplay } from "../../components/DrawingDisplay";
+import { sounds } from "../../sounds";
 
 export function TeekoChampion({
   state,
@@ -17,6 +19,11 @@ export function TeekoChampion({
   const composer = playerName(champion.composerId);
   const drawingAuthor = playerName(champion.drawingAuthorId);
   const sloganAuthor = playerName(champion.sloganAuthorId);
+
+  useEffect(() => {
+    sounds.win();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col gap-4 p-4">

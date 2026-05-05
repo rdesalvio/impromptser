@@ -53,6 +53,10 @@ export interface ImposterRoundPublic {
   myRole?: "IMPOSTER" | "PLAYER";
   iSubmittedAnswer: boolean;
   iVoted: boolean;
+  roundNumber: number;
+  totalRounds: number;
+  // GAME_OVER only:
+  finalGameWinnerId?: PlayerId;
 }
 
 export interface SpyfallRoundPublic {
@@ -198,6 +202,7 @@ export interface RoomStatePublic {
   flip7Round?: Flip7RoundPublic;
   flip7TargetScore?: number;     // visible in lobby so all players see what the host picked
   teekoRound?: TeekoRoundPublic;
+  imposterTotalRounds?: number;  // visible in lobby so all players see what the host picked
   minPlayers: number;
 }
 
@@ -214,6 +219,9 @@ export const FLIP7_FORCED_DRAW_MS = 700;
 export const FLIP7_TARGET_SCORES = [50, 100, 200] as const;
 export const FLIP7_DEFAULT_TARGET = 200;
 export const FLIP7_RECENT_EVENTS = 5;
+export const IMPOSTER_ROUND_OPTIONS = [3, 5, 7] as const;
+export const IMPOSTER_DEFAULT_ROUNDS = 5;
+export const IMPOSTER_BETWEEN_ROUNDS_SECONDS = 6;
 
 export const MIN_PLAYERS_IMPOSTER = 4;
 export const MIN_PLAYERS_SPYFALL = 3;
@@ -256,6 +264,8 @@ export interface ClientToServerEvents {
   "flip7:target": (payload: { targetPlayerId: string }) => void;
   "flip7:set-target": (payload: { targetScore: number }) => void;
   "flip7:next-game": () => void;
+  "imposter:set-rounds": (payload: { rounds: number }) => void;
+  "imposter:next-game": () => void;
   "teeko:submit-drawing": (payload: { strokes: DrawingStroke[] }) => void;
   "teeko:submit-slogan": (payload: { text: string }) => void;
   "teeko:submit-shirts": (

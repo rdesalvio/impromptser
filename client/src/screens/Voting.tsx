@@ -41,7 +41,7 @@ export function Voting({
     <div className="mx-auto flex min-h-full max-w-md flex-col gap-4 p-4">
       <div className="flex items-center justify-between pt-2">
         <div className="text-xs font-bold uppercase tracking-wider text-ink/50">
-          Vote: who's the imposter?
+          Round {round.roundNumber}/{round.totalRounds} · Who's the imposter?
         </div>
         <Timer endsAt={round.phaseEndsAt} />
       </div>

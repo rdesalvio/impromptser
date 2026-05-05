@@ -4,7 +4,13 @@ import { Server } from "socket.io";
 import { randomUUID } from "crypto";
 import path from "path";
 import { fileURLToPath } from "url";
-import { Flip7Room, RoomStore, TeekoRoom, sanitizeName } from "./rooms.ts";
+import {
+  Flip7Room,
+  ImposterRoom,
+  RoomStore,
+  TeekoRoom,
+  sanitizeName,
+} from "./rooms.ts";
 import type {
   AckCreate,
   AckJoin,
@@ -155,6 +161,22 @@ io.on("connection", (socket) => {
     if (!(room instanceof Flip7Room)) return;
     const res = room.setTargetScore(data.playerId, targetScore);
     if (!res.ok) socket.emit("room:error", res.error ?? "Set target failed");
+  });
+
+  socket.on("imposter:set-rounds", ({ rounds }) => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof ImposterRoom)) return;
+    const res = room.setRoundsTarget(data.playerId, rounds);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Set rounds failed");
+  });
+
+  socket.on("imposter:next-game", () => {
+    if (!data.roomCode || !data.playerId) return;
+    const room = store.get(data.roomCode);
+    if (!(room instanceof ImposterRoom)) return;
+    const res = room.nextGame(data.playerId);
+    if (!res.ok) socket.emit("room:error", res.error ?? "Reset failed");
   });
 
   socket.on("flip7:next-game", () => {

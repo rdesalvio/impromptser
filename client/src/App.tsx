@@ -7,6 +7,7 @@ import { Answering } from "./screens/Answering";
 import { ImposterAnswering } from "./screens/ImposterAnswering";
 import { Voting } from "./screens/Voting";
 import { Results } from "./screens/Results";
+import { ImposterGameOver } from "./screens/ImposterGameOver";
 import { SpyfallReveal } from "./games/spyfall/Reveal";
 import { SpyfallDiscuss } from "./games/spyfall/Discuss";
 import { SpyfallVoting } from "./games/spyfall/Voting";
@@ -19,6 +20,7 @@ import { TeekoComposing } from "./games/teeko/Composing";
 import { TeekoBracket } from "./games/teeko/Bracket";
 import { TeekoChampion } from "./games/teeko/Champion";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { SoundToggle } from "./components/SoundToggle";
 
 const STORAGE_KEY = "impromptser:credentials";
 
@@ -167,6 +169,8 @@ export default function App() {
           return <Voting state={state} socket={socket} />;
         case "RESULTS":
           return <Results state={state} />;
+        case "GAME_OVER":
+          return <ImposterGameOver state={state} socket={socket} />;
       }
     }
     return null;
@@ -175,13 +179,14 @@ export default function App() {
   return (
     <div className="min-h-full">
       <ThemeToggle />
+      <SoundToggle />
       {!connected && (
         <div className="bg-danger/10 px-3 py-1 text-center text-xs text-danger">
           Reconnecting…
         </div>
       )}
       {credentials && state && (
-        <div className="flex items-center justify-between gap-4 pl-16 pr-4 pt-3 text-xs text-ink/40">
+        <div className="flex items-center justify-between gap-4 pl-28 pr-4 pt-3 text-xs text-ink/40">
           <span className="font-mono">{state.code}</span>
           <button onClick={leave} className="underline">
             Leave

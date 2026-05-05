@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { AppSocket } from "../../socket";
 import type { RoomStatePublic } from "../../../../shared/types";
 import { ChatPanel } from "../../components/ChatPanel";
+import { useTransitionEffect } from "../../hooks/useTransitionEffect";
+import { sounds } from "../../sounds";
 import { PlayerRow } from "./PlayerRow";
 
 export function Flip7Round({
@@ -20,6 +22,14 @@ export function Flip7Round({
   const isMyTarget = awaiting.kind === "TARGET" && awaiting.actorId === state.myId;
   const forcedDrawerId =
     awaiting.kind === "FORCED_DRAWING" ? awaiting.targetId : round.flipThree?.targetId;
+
+  // ----- sounds -----
+  useTransitionEffect(isMyDecision, sounds.yourTurn);
+  useTransitionEffect(myHand?.status === "BUSTED", sounds.bust);
+  useTransitionEffect(
+    Object.values(round.hands).some((h) => h.status === "FLIPPED_SEVEN"),
+    sounds.flipSeven
+  );
 
   // ----- timer ticker -----
   const deadline =

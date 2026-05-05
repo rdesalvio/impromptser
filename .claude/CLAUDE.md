@@ -22,7 +22,7 @@ Monorepo, three top-level folders:
 
 `server/src/rooms.ts` defines an abstract `RoomBase` with the shared mechanics (players, host, connection lifecycle, lobby, broadcast, timers). Each game is a subclass:
 
-- `ImposterRoom` — `gameType = "imposter"`, phases `LOBBY → ANSWERING → IMPOSTER_ANSWERING → VOTING → RESULTS`.
+- `ImposterRoom` — `gameType = "imposter"`, phases `LOBBY → ANSWERING → IMPOSTER_ANSWERING → VOTING → RESULTS → (next round | GAME_OVER) → LOBBY`. Multi-round match: host picks 3/5/7 rounds in lobby. Imposter rotation: `recentImposterIds` excludes recent picks. Prompts deduplicate within a session via `pickRandomPromptExcluding(usedPromptIds)`. After the final round's RESULTS, highest cumulative score wins.
 - `SpyfallRoom` — `gameType = "spyfall"`, phases `LOBBY → REVEAL → DISCUSS → VOTING → RESULTS`.
 - `Flip7Room` — `gameType = "flip7"`, phases `LOBBY → ROUND ↔ ROUND_END → GAME_OVER → LOBBY`. Turn-based engine driven by a single `awaiting` state of kind DECISION (30s decision timer), TARGET (15s pick-a-target after drawing an action card), or FORCED_DRAWING (server-paced ~700ms during a Flip Three sequence). Action cards do not end the actor's turn (decision B). Cumulative `Player.score` carries across rounds; round ends on Flip 7 or all-stopped, then either advances to the next round (8s pause) or transitions to GAME_OVER if any player ≥ target.
 - `TeekoRoom` — `gameType = "teeko"`, phases `LOBBY → DRAWING (90s) → WRITING (90s) → COMPOSING (45s) → BRACKET → CHAMPION → LOBBY`. Drawings stored as stroke arrays in the round's in-memory pool — never persisted to disk; pool is cleared when the round ends. `dealHands` deals each player 2 drawings + 4 slogans (preferring others' content if pool has enough). Bracket is single-elimination with random pairings; bye if odd; coinflip on tie. Vote counts hidden until matchup reveal.
@@ -63,6 +63,7 @@ A small Lightsail instance (≤512 MB RAM) needs swap to build — `tsc -b && vi
 - **Clipboard on share link** uses `navigator.clipboard` (HTTPS / localhost) with a `document.execCommand('copy')` fallback so plain-HTTP deploys still work.
 - **Min players differ:** Imposter needs 4; Spyfall, Flip 7, Tee K.O. need 3 (`MIN_PLAYERS_*` in `shared/types.ts`). Max is 10 for all.
 - **Drawings are ephemeral.** Tee K.O. stores stroke data in the active round only; `nextGame` clears it; server restart wipes everything. Stroke payload validated server-side via `sanitizeStrokes` (color regex, point count caps).
+- **Theme + sounds are client-side**: dark mode (`html.dark` class, CSS-var palette, `ThemeToggle` top-left); sound effects (`client/src/sounds.ts`, Web Audio synthesized — no asset files, `SoundToggle` next to theme). Both persist via localStorage and respect system preference on first load.
 
 ## Adding a new game
 

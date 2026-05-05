@@ -20,7 +20,7 @@ export function Results({ state }: { state: RoomStatePublic }) {
     <div className="mx-auto flex min-h-full max-w-md flex-col gap-4 p-4">
       <div className="flex items-center justify-between pt-2">
         <div className="text-xs font-bold uppercase tracking-wider text-ink/50">
-          Results
+          Round {round.roundNumber}/{round.totalRounds} · Results
         </div>
         <Timer endsAt={round.phaseEndsAt} />
       </div>
@@ -102,7 +102,9 @@ export function Results({ state }: { state: RoomStatePublic }) {
       </div>
 
       <div className="text-center text-xs text-ink/40">
-        Returning to lobby…
+        {round.roundNumber < round.totalRounds
+          ? `Round ${round.roundNumber + 1} starting soon…`
+          : "Game over…"}
       </div>
     </div>
   );

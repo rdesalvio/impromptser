@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AppSocket } from "../socket";
 import type { RoomStatePublic } from "../../../shared/types";
-import { FLIP7_TARGET_SCORES } from "../../../shared/types";
+import { FLIP7_TARGET_SCORES, IMPOSTER_ROUND_OPTIONS } from "../../../shared/types";
 
 export function Lobby({
   state,
@@ -74,6 +74,39 @@ export function Lobby({
           </div>
         </button>
       </div>
+
+      {state.gameType === "imposter" && (
+        <div className="card flex flex-col gap-3">
+          <div className="text-sm font-medium text-ink/70">Rounds per match</div>
+          <div className="flex gap-2">
+            {IMPOSTER_ROUND_OPTIONS.map((r) => {
+              const selected = state.imposterTotalRounds === r;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  disabled={!isHost}
+                  onClick={() => socket.emit("imposter:set-rounds", { rounds: r })}
+                  className={[
+                    "flex-1 rounded-xl border px-3 py-2 text-center font-semibold transition",
+                    selected
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-ink/10 bg-surface text-ink/70",
+                    isHost ? "" : "cursor-not-allowed opacity-70",
+                  ].join(" ")}
+                >
+                  {r}
+                </button>
+              );
+            })}
+          </div>
+          {!isHost && (
+            <p className="text-center text-xs text-ink/40">
+              Only the host can change the round count.
+            </p>
+          )}
+        </div>
+      )}
 
       {state.gameType === "flip7" && (
         <div className="card flex flex-col gap-3">

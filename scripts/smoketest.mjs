@@ -1,6 +1,6 @@
-// Headless end-to-end test: spins up 4 socket clients, plays one full round
-// against a server already running on http://localhost:3001.
-// Usage: npm run dev   (in another terminal), then:  node scripts/smoketest.mjs
+// Headless end-to-end test: spins up 4 socket clients, plays a 3-round imposter
+// match (the smallest configurable count), then verifies GAME_OVER + reset.
+// Usage: npm run dev (in another terminal), then: node scripts/smoketest.mjs
 import { io } from "../client/node_modules/socket.io-client/build/esm/index.js";
 
 function makeClient(name) {
@@ -15,7 +15,7 @@ function makeClient(name) {
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-async function until(fn, timeoutMs = 5000) {
+async function until(fn, timeoutMs = 30000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (fn()) return;
@@ -40,50 +40,58 @@ for (const p of players.slice(1)) {
   await new Promise((res) => {
     p.sock.emit("room:join", { code, name: p.name }, (r) => {
       if (!r.ok) throw new Error(`${p.name} join failed: ` + r.error);
-      console.log(`[${p.name}] joined`);
       res();
     });
   });
 }
-
 await until(() => host.latest && host.latest.players.length === 4);
-console.log("All 4 in lobby. Starting game.");
+console.log(`All 4 in lobby. Default rounds = ${host.latest.imposterTotalRounds}.`);
+
+// Set to 3 rounds (minimum) for a quick smoketest.
+host.sock.emit("imposter:set-rounds", { rounds: 3 });
+await wait(150);
+console.log(`Rounds set to ${host.latest.imposterTotalRounds}. Starting game.`);
 host.sock.emit("game:start");
 
-await until(() => players.every((p) => p.latest?.phase === "ANSWERING"));
-const imposter = players.find((p) => p.latest.imposterRound.myRole === "IMPOSTER");
-const realPlayers = players.filter((p) => p.latest.imposterRound.myRole !== "IMPOSTER");
-console.log(`Imposter: ${imposter.name}`);
-
-for (const p of realPlayers) {
-  p.sock.emit("answer:submit", { text: `${p.name}'s sunscreen` });
+async function playRound(roundIndex) {
+  await until(() => players.every((p) => p.latest?.phase === "ANSWERING"));
+  const imposter = players.find((p) => p.latest.imposterRound.myRole === "IMPOSTER");
+  const real = players.filter((p) => p.latest.imposterRound.myRole !== "IMPOSTER");
+  console.log(`Round ${roundIndex + 1}: imposter is ${imposter.name}`);
+  for (const p of real) p.sock.emit("answer:submit", { text: `${p.name}'s answer ${roundIndex}` });
+  await until(() => imposter.latest?.phase === "IMPOSTER_ANSWERING");
+  imposter.sock.emit("answer:submit", { text: "imposter's bluff" });
+  await until(() => players.every((p) => p.latest.phase === "VOTING"));
+  const imposterId = imposter.latest.myId;
+  for (const p of players) {
+    const target = p === imposter ? real[0].latest.myId : imposterId;
+    p.sock.emit("vote:cast", { targetPlayerId: target });
+  }
+  await until(() => players.every((p) => p.latest.phase === "RESULTS"));
+  const r0 = host.latest.imposterRound;
+  console.log(
+    `  Round ${r0.roundNumber}/${r0.totalRounds} done — winner=${r0.winner}, imposter caught=${r0.imposterRevealed === imposterId}`
+  );
 }
 
-await until(() => imposter.latest?.phase === "IMPOSTER_ANSWERING");
-console.log(`Imposter sees ${imposter.latest.imposterRound.answers.length} answers`);
-imposter.sock.emit("answer:submit", { text: "imposter's towel" });
-
-await until(() => players.every((p) => p.latest.phase === "VOTING"));
-console.log("Voting phase reached.");
-
-const imposterId = imposter.latest.myId;
-for (const p of players) {
-  const target = p === imposter ? realPlayers[0].latest.myId : imposterId;
-  p.sock.emit("vote:cast", { targetPlayerId: target });
-}
-players[1].sock.emit("chat:send", { text: "Definitely the towel guy." });
-
-await until(() => players.every((p) => p.latest.phase === "RESULTS"));
-const r0 = players[0].latest.imposterRound;
-console.log(
-  `Winner: ${r0.winner}, imposter revealed correctly: ${r0.imposterRevealed === imposterId}`
-);
-for (const p of players[0].latest.players) {
-  console.log(`  ${p.name}: score=${p.score}`);
+for (let i = 0; i < 3; i++) {
+  await playRound(i);
+  // After RESULTS, the server either advances to next ANSWERING or to GAME_OVER.
+  await until(() => host.latest.phase === "ANSWERING" || host.latest.phase === "GAME_OVER", 12000);
 }
 
-await until(() => players.every((p) => p.latest.phase === "LOBBY"), 20000);
-console.log("Returned to lobby. PASS.");
+console.log(`Phase after final round: ${host.latest.phase}`);
+const finalRound = host.latest.imposterRound;
+console.log(`Final winner id present: ${!!finalRound?.finalGameWinnerId}`);
+const winner = host.latest.players.find(p => p.id === finalRound?.finalGameWinnerId);
+console.log(`Winner: ${winner?.name ?? "none"}`);
+for (const p of host.latest.players) console.log(`  ${p.name}: score=${p.score}`);
+
+// Test reset
+host.sock.emit("imposter:next-game");
+await until(() => host.latest.phase === "LOBBY", 5000);
+console.log(`Reset to lobby. Scores: ${host.latest.players.map(p => `${p.name}=${p.score}`).join(", ")}`);
+console.log("PASS.");
 
 players.forEach((p) => p.sock.disconnect());
 process.exit(0);

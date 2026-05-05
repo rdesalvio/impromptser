@@ -45,7 +45,7 @@ export function Answering({
     <div className="mx-auto flex min-h-full max-w-md flex-col gap-6 p-6">
       <div className="flex items-center justify-between pt-4">
         <div className="text-xs font-bold uppercase tracking-wider text-ink/50">
-          Answer the prompt
+          Round {round.roundNumber}/{round.totalRounds} · Answer the prompt
         </div>
         <Timer endsAt={round.phaseEndsAt} />
       </div>

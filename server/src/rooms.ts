@@ -10,6 +10,9 @@ import {
   FLIP7_TARGET_SCORES,
   FLIP7_TARGET_SECONDS,
   IMPOSTER_ANSWER_SECONDS,
+  IMPOSTER_BETWEEN_ROUNDS_SECONDS,
+  IMPOSTER_DEFAULT_ROUNDS,
+  IMPOSTER_ROUND_OPTIONS,
   MAX_ANSWER_LEN,
   MAX_CHAT_LEN,
   MAX_DRAWING_POINTS,
@@ -57,7 +60,7 @@ import type {
   TeekoRoundPublic,
   TeekoShirtPublic,
 } from "../../shared/types.ts";
-import { pickRandomPrompt } from "./prompts.ts";
+import { pickRandomPrompt, pickRandomPromptExcluding } from "./prompts.ts";
 import { ALL_LOCATION_NAMES, pickRandomLocation } from "./locations.ts";
 import { buildDeck, shuffleInPlace } from "./cards.ts";
 
@@ -245,6 +248,11 @@ export class ImposterRoom extends RoomBase {
   readonly gameType = "imposter" as const;
   readonly minPlayers = MIN_PLAYERS_IMPOSTER;
   round?: ImposterRound;
+  totalRounds = IMPOSTER_DEFAULT_ROUNDS;
+  currentRoundIndex = 0;            // 0-based index of round in progress / just-played
+  usedPromptIds = new Set<string>();
+  recentImposterIds: PlayerId[] = []; // for fairer rotation
+  gameWinnerId?: PlayerId;
 
   startGame(by: PlayerId): { ok: boolean; error?: string } {
     if (by !== this.hostId) return { ok: false, error: "Only the host can start" };
@@ -253,14 +261,54 @@ export class ImposterRoom extends RoomBase {
     if (connected.length < this.minPlayers) {
       return { ok: false, error: `Need at least ${this.minPlayers} players` };
     }
+    for (const p of this.players.values()) p.score = 0;
+    this.currentRoundIndex = 0;
+    this.usedPromptIds.clear();
+    this.recentImposterIds = [];
+    this.gameWinnerId = undefined;
     this.beginRound();
+    return { ok: true };
+  }
+
+  setRoundsTarget(by: PlayerId, rounds: number): { ok: boolean; error?: string } {
+    if (by !== this.hostId) return { ok: false, error: "Only the host can change rounds" };
+    if (this.phase !== "LOBBY") return { ok: false, error: "Game already started" };
+    if (!IMPOSTER_ROUND_OPTIONS.includes(rounds as 3 | 5 | 7)) {
+      return { ok: false, error: "Invalid round count" };
+    }
+    this.totalRounds = rounds;
+    this.emitChange();
+    return { ok: true };
+  }
+
+  nextGame(by: PlayerId): { ok: boolean; error?: string } {
+    if (by !== this.hostId) return { ok: false, error: "Only the host can reset" };
+    if (this.phase !== "GAME_OVER") return { ok: false, error: "Game still in progress" };
+    for (const p of this.players.values()) p.score = 0;
+    this.currentRoundIndex = 0;
+    this.usedPromptIds.clear();
+    this.recentImposterIds = [];
+    this.gameWinnerId = undefined;
+    this.round = undefined;
+    this.phase = "LOBBY";
+    this.clearTimer();
+    this.emitChange();
     return { ok: true };
   }
 
   private beginRound() {
     const connected = [...this.players.values()].filter((p) => p.connected);
-    const imposter = connected[Math.floor(Math.random() * connected.length)];
-    const prompt = pickRandomPrompt();
+    // Prefer players who haven't been imposter recently.
+    const eligible = connected.filter((p) => !this.recentImposterIds.includes(p.id));
+    const pool = eligible.length > 0 ? eligible : connected;
+    const imposter = pool[Math.floor(Math.random() * pool.length)];
+    this.recentImposterIds.push(imposter.id);
+    const window = Math.max(connected.length - 1, 1);
+    while (this.recentImposterIds.length > window) this.recentImposterIds.shift();
+
+    const prompt = pickRandomPromptExcluding(this.usedPromptIds);
+    this.usedPromptIds.add(prompt.id);
+
     this.round = {
       promptId: prompt.id,
       promptText: prompt.text,
@@ -384,11 +432,29 @@ export class ImposterRoom extends RoomBase {
       const imposter = this.players.get(this.round.imposterId);
       if (imposter) imposter.score += 2;
     }
-    this.round.phaseEndsAt = Date.now() + RESULTS_SECONDS * 1000;
-    this.setPhase("RESULTS", RESULTS_SECONDS, () => {
-      this.round = undefined;
-      this.returnToLobby();
-    });
+    this.round.phaseEndsAt = Date.now() + IMPOSTER_BETWEEN_ROUNDS_SECONDS * 1000;
+    this.setPhase("RESULTS", IMPOSTER_BETWEEN_ROUNDS_SECONDS, () => this.endRoundOrGame());
+  }
+
+  private endRoundOrGame() {
+    this.currentRoundIndex++;
+    if (this.currentRoundIndex >= this.totalRounds) {
+      // Game over — pick the highest-score player as winner (ties: first encountered wins).
+      let topScore = -1;
+      let winnerId: PlayerId | undefined;
+      for (const p of this.players.values()) {
+        if (p.score > topScore) {
+          topScore = p.score;
+          winnerId = p.id;
+        }
+      }
+      this.gameWinnerId = winnerId;
+      this.phase = "GAME_OVER";
+      this.clearTimer();
+      this.emitChange();
+      return;
+    }
+    this.beginRound();
   }
 
   publicStateFor(viewerId: PlayerId): RoomStatePublic {
@@ -436,9 +502,25 @@ export class ImposterRoom extends RoomBase {
         myRole,
         iSubmittedAnswer: this.round.answers.has(viewerId),
         iVoted: this.round.votes.has(viewerId),
+        roundNumber: this.currentRoundIndex + 1,
+        totalRounds: this.totalRounds,
       };
     }
-    return { ...base, imposterRound };
+    if (this.phase === "GAME_OVER") {
+      imposterRound = imposterRound ?? {
+        promptForRealPlayers: null,
+        answers: [],
+        votes: {},
+        chat: [],
+        phaseEndsAt: 0,
+        iSubmittedAnswer: false,
+        iVoted: false,
+        roundNumber: this.totalRounds,
+        totalRounds: this.totalRounds,
+      };
+      imposterRound.finalGameWinnerId = this.gameWinnerId;
+    }
+    return { ...base, imposterRound, imposterTotalRounds: this.totalRounds };
   }
 }
 
