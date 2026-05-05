@@ -325,6 +325,12 @@ export class ImposterRoom extends RoomBase {
     if (!this.round) return { ok: false, error: "No active round" };
     const trimmed = sanitizeText(text, MAX_ANSWER_LEN).trim();
     if (!trimmed) return { ok: false, error: "Answer cannot be empty" };
+    const normalized = trimmed.toLowerCase();
+    for (const existing of this.round.answers.values()) {
+      if (existing.toLowerCase() === normalized) {
+        return { ok: false, error: "Someone already used that answer — try a different one" };
+      }
+    }
     const isImposter = playerId === this.round.imposterId;
     if (this.phase === "ANSWERING") {
       if (isImposter) return { ok: false, error: "Imposter answers later" };
@@ -1519,6 +1525,10 @@ export class TeekoRoom extends RoomBase {
     if (!matchup || matchup.revealed || matchup.byeShirtId) {
       return { ok: false, error: "Not voting on this matchup" };
     }
+    const targetShirtId = side === "LEFT" ? matchup.leftShirtId : matchup.rightShirtId;
+    if (targetShirtId && this.didContribute(playerId, targetShirtId)) {
+      return { ok: false, error: "Can't vote for your own creation" };
+    }
     const prev = matchup.votes.get(playerId);
     if (prev === side) return { ok: true };
     if (prev === "LEFT") matchup.leftCount--;
@@ -1527,10 +1537,34 @@ export class TeekoRoom extends RoomBase {
     if (side === "LEFT") matchup.leftCount++;
     else matchup.rightCount++;
     this.emitChange();
-    // Reveal early if all connected players voted.
+    // Reveal early if every eligible voter has voted (skip those who can't vote at all).
     const connected = [...this.players.values()].filter((p) => p.connected);
-    if (matchup.votes.size >= connected.length) this.revealCurrentMatchup();
+    const eligible = connected.filter((p) => this.canVote(p.id, matchup));
+    if (matchup.votes.size >= eligible.length) this.revealCurrentMatchup();
     return { ok: true };
+  }
+
+  private didContribute(playerId: PlayerId, shirtId: string): boolean {
+    if (!this.round) return false;
+    const shirt = this.round.shirts.get(shirtId);
+    if (!shirt) return false;
+    if (shirt.composerId === playerId) return true;
+    const drawing = this.round.drawings.get(shirt.drawingId);
+    if (drawing?.authorId === playerId) return true;
+    const slogan = this.round.slogans.get(shirt.sloganId);
+    if (slogan?.authorId === playerId) return true;
+    return false;
+  }
+
+  private canVote(playerId: PlayerId, matchup: TeekoMatchup): boolean {
+    if (matchup.byeShirtId) return false;
+    const leftMine = matchup.leftShirtId
+      ? this.didContribute(playerId, matchup.leftShirtId)
+      : true;
+    const rightMine = matchup.rightShirtId
+      ? this.didContribute(playerId, matchup.rightShirtId)
+      : true;
+    return !(leftMine && rightMine);
   }
 
   nextGame(by: PlayerId): { ok: boolean; error?: string } {
@@ -1848,6 +1882,8 @@ export class TeekoRoom extends RoomBase {
       leftVotes: m.revealed ? m.leftCount : undefined,
       rightVotes: m.revealed ? m.rightCount : undefined,
       winner: m.winner,
+      iContributedLeft: m.leftShirtId ? this.didContribute(viewerId, m.leftShirtId) : false,
+      iContributedRight: m.rightShirtId ? this.didContribute(viewerId, m.rightShirtId) : false,
     };
   }
 }

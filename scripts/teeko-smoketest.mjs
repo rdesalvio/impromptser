@@ -97,16 +97,25 @@ while (players[0].latest?.phase === "BRACKET" && matchups < matchupCap) {
   }
   if (!m.revealed) {
     matchups++;
-    // Each player votes randomly
+    // Each player votes — respecting the no-self-vote rule.
     for (const p of players) {
-      const side = Math.random() < 0.5 ? "LEFT" : "RIGHT";
+      // Use this player's view (matchup flags are per-viewer).
+      const myMatchup = p.latest?.teekoRound?.bracket?.matchup;
+      if (!myMatchup) continue;
+      const left = !myMatchup.iContributedLeft;
+      const right = !myMatchup.iContributedRight;
+      let side;
+      if (left && right) side = Math.random() < 0.5 ? "LEFT" : "RIGHT";
+      else if (left) side = "LEFT";
+      else if (right) side = "RIGHT";
+      else continue; // both are mine — sit out
       p.sock.emit("teeko:vote", { side });
     }
     console.log(`  Match ${players[0].latest.teekoRound.bracket.matchupIndex}/${players[0].latest.teekoRound.bracket.matchupsInRound} of round ${players[0].latest.teekoRound.bracket.currentRound}/${players[0].latest.teekoRound.bracket.totalRounds}`);
   }
 }
 
-await until(() => players[0].latest?.phase === "CHAMPION", 60000);
+await until(() => players[0].latest?.phase === "CHAMPION", 600000);
 console.log("CHAMPION");
 const champ = players[0].latest.teekoRound?.champion;
 console.log(`  Slogan: "${champ.shirt.slogan.text}"`);

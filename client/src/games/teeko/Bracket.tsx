@@ -34,9 +34,17 @@ export function TeekoBracket({
     );
   }
 
+  const cantVote = matchup.iContributedLeft && matchup.iContributedRight;
+
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col gap-3 p-4">
       <BracketHeader bracket={bracket} phaseEndsAt={round.phaseEndsAt} />
+
+      {cantVote && !matchup.revealed && (
+        <div className="rounded-xl border border-ink/15 bg-ink/5 px-3 py-2 text-center text-xs text-ink/70">
+          Both shirts are your creations — sit this one out.
+        </div>
+      )}
 
       {matchup.leftShirt && (
         <ShirtChoice
@@ -45,6 +53,7 @@ export function TeekoBracket({
           revealed={matchup.revealed}
           isWinner={matchup.winner === "LEFT"}
           isMyVote={matchup.myVote === "LEFT"}
+          isMine={!!matchup.iContributedLeft}
           voteCount={matchup.leftVotes}
           onVote={() => vote("LEFT")}
         />
@@ -61,6 +70,7 @@ export function TeekoBracket({
           revealed={matchup.revealed}
           isWinner={matchup.winner === "RIGHT"}
           isMyVote={matchup.myVote === "RIGHT"}
+          isMine={!!matchup.iContributedRight}
           voteCount={matchup.rightVotes}
           onVote={() => vote("RIGHT")}
         />
@@ -128,6 +138,7 @@ function ShirtChoice({
   revealed,
   isWinner,
   isMyVote,
+  isMine,
   voteCount,
   onVote,
 }: {
@@ -136,6 +147,7 @@ function ShirtChoice({
   revealed: boolean;
   isWinner: boolean;
   isMyVote: boolean;
+  isMine: boolean;
   voteCount?: number;
   onVote: () => void;
 }) {
@@ -154,6 +166,9 @@ function ShirtChoice({
           {isMyVote && !revealed && (
             <span className="ml-2 text-accent">· your vote</span>
           )}
+          {isMine && !revealed && (
+            <span className="ml-2 font-medium text-ink/40">· your creation</span>
+          )}
         </div>
         {revealed && voteCount !== undefined && (
           <div className="text-xs font-semibold tabular-nums text-ink/70">
@@ -168,9 +183,10 @@ function ShirtChoice({
       {!revealed && (
         <button
           className={isMyVote ? "btn-primary" : "btn-secondary"}
+          disabled={isMine}
           onClick={onVote}
         >
-          {isMyVote ? "Voted" : `Vote ${label}`}
+          {isMine ? "Can't vote for your own" : isMyVote ? "Voted" : `Vote ${label}`}
         </button>
       )}
     </div>

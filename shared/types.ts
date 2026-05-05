@@ -164,6 +164,9 @@ export interface TeekoMatchupPublic {
   leftVotes?: number;                // populated only after reveal
   rightVotes?: number;
   winner?: "LEFT" | "RIGHT";
+  // Per-viewer flags: true if I composed, drew, or wrote the slogan for this shirt.
+  iContributedLeft?: boolean;
+  iContributedRight?: boolean;
 }
 
 export interface TeekoRoundPublic {
@@ -235,15 +238,15 @@ export const MAX_SLOGAN_LEN = 80;
 export const MAX_DRAWING_STROKES = 400;
 export const MAX_DRAWING_POINTS = 8000;
 
-export const TEEKO_DRAWING_SECONDS = 90;
+export const TEEKO_DRAWING_SECONDS = 120;
 export const TEEKO_WRITING_SECONDS = 90;
 export const TEEKO_COMPOSING_SECONDS = 45;
-export const TEEKO_MATCHUP_VOTE_SECONDS = 12;
+export const TEEKO_MATCHUP_VOTE_SECONDS = 20;
 export const TEEKO_MATCHUP_REVEAL_SECONDS = 4;
 export const TEEKO_BYE_REVEAL_SECONDS = 3;
 export const TEEKO_DRAWING_TARGET = 2;
 export const TEEKO_SLOGAN_TARGET = 4;
-export const TEEKO_HAND_DRAWINGS = 2;
+export const TEEKO_HAND_DRAWINGS = 4;
 export const TEEKO_HAND_SLOGANS = 4;
 export const TEEKO_SHIRTS_PER_PLAYER = 2;
 
