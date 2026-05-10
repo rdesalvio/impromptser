@@ -25,6 +25,7 @@ export function PlayerRow({
   isTargetable,
   onTarget,
   isForcedDrawer,
+  compact,
 }: {
   player: Player;
   hand: Flip7Hand;
@@ -33,45 +34,90 @@ export function PlayerRow({
   isTargetable: boolean;
   onTarget?: () => void;
   isForcedDrawer: boolean;
+  compact?: boolean;
 }) {
   const dim = hand.status === "BUSTED" || hand.status === "FROZEN";
+  const wrapperClass = [
+    "block w-full rounded-xl border text-left transition",
+    compact ? "px-3 py-1.5" : "rounded-2xl px-3 py-2",
+    isTargetable
+      ? "cursor-pointer border-dashed border-accent bg-accent/5 hover:bg-accent/10"
+      : isCurrent
+        ? "border-accent bg-accent/5"
+        : isForcedDrawer
+          ? "border-purple-300 bg-purple-50 dark:border-purple-600 dark:bg-purple-900/30"
+          : "border-ink/10 bg-surface",
+    dim ? "opacity-70" : "",
+  ].join(" ");
+
+  const statusBadge = hand.status !== "ACTIVE" && (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${STATUS_BADGE_CLASS[hand.status]}`}
+    >
+      {STATUS_LABEL[hand.status]}
+      {hand.status === "BUSTED" && hand.bustedOn !== undefined && (
+        <span className="ml-1 font-normal opacity-80">on {hand.bustedOn}</span>
+      )}
+    </span>
+  );
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        disabled={!isTargetable}
+        onClick={isTargetable ? onTarget : undefined}
+        className={wrapperClass}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {isCurrent && <span className="text-accent">▶</span>}
+            {isForcedDrawer && <span className="text-purple-600">⚡</span>}
+            <span className="truncate text-sm font-medium">
+              {player.name}
+              {isMe && <span className="ml-1 text-[10px] font-normal text-ink/40">(you)</span>}
+            </span>
+            {statusBadge}
+            {hand.hasSecondChance && (
+              <span
+                title="Second Chance"
+                className="text-amber-600 dark:text-amber-300"
+                aria-label="Has Second Chance"
+              >
+                🛡
+              </span>
+            )}
+          </div>
+          <div className="shrink-0 text-[11px] tabular-nums text-ink/70">
+            <span className="mr-2">{hand.numbers.length}/7</span>
+            <span className="mr-2">
+              H<span className="ml-1 font-semibold text-ink">{hand.roundScore}</span>
+            </span>
+            <span>
+              T<span className="ml-1 font-semibold text-ink">{player.score}</span>
+            </span>
+          </div>
+        </div>
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
       disabled={!isTargetable}
       onClick={isTargetable ? onTarget : undefined}
-      className={[
-        "block w-full rounded-2xl border px-3 py-2 text-left transition",
-        isTargetable
-          ? "cursor-pointer border-dashed border-accent bg-accent/5 hover:bg-accent/10"
-          : isCurrent
-            ? "border-accent bg-accent/5"
-            : isForcedDrawer
-              ? "border-purple-300 bg-purple-50 dark:border-purple-600 dark:bg-purple-900/30"
-              : "border-ink/10 bg-surface",
-        dim ? "opacity-70" : "",
-      ].join(" ")}
+      className={wrapperClass}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
           {isCurrent && <span className="text-accent">▶</span>}
           {isForcedDrawer && <span className="text-purple-600">⚡</span>}
           <span className="truncate font-semibold">
             {player.name}
             {isMe && <span className="ml-1 text-xs font-normal text-ink/40">(you)</span>}
           </span>
-          {hand.status !== "ACTIVE" && (
-            <span
-              className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${STATUS_BADGE_CLASS[hand.status]}`}
-            >
-              {STATUS_LABEL[hand.status]}
-              {hand.status === "BUSTED" && hand.bustedOn !== undefined && (
-                <span className="ml-1 font-normal opacity-80">
-                  on {hand.bustedOn}
-                </span>
-              )}
-            </span>
-          )}
+          {statusBadge}
         </div>
         <div className="shrink-0 text-right text-xs tabular-nums text-ink/70">
           <span className="mr-2">Hand <span className="font-semibold text-ink">{hand.roundScore}</span></span>

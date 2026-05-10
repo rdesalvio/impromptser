@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppSocket } from "../../socket";
 import type { RoomStatePublic } from "../../../../shared/types";
-import { ChatPanel } from "../../components/ChatPanel";
+import { ChatDrawer } from "../../components/ChatDrawer";
 import { useTransitionEffect } from "../../hooks/useTransitionEffect";
 import { sounds } from "../../sounds";
 import { PlayerRow } from "./PlayerRow";
@@ -32,8 +32,7 @@ export function Flip7Round({
   );
 
   // ----- timer ticker -----
-  const deadline =
-    "deadline" in awaiting ? awaiting.deadline : undefined;
+  const deadline = "deadline" in awaiting ? awaiting.deadline : undefined;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
@@ -56,11 +55,18 @@ export function Flip7Round({
   }
 
   const turnOrder = round.turnOrder;
-  const orderedPlayers = turnOrder
-    .map((id) => playersById[id])
-    .filter(Boolean);
+  const orderedPlayers = turnOrder.map((id) => playersById[id]).filter(Boolean);
 
-  // ----- action area copy -----
+  // ----- focal player (gets the full row + scrolls into view on change) -----
+  const focalPlayerId =
+    awaiting.kind === "DECISION"
+      ? awaiting.playerId
+      : forcedDrawerId ?? undefined;
+  const activeRowRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    activeRowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focalPlayerId]);
+
   const isRoundEnd = state.phase === "ROUND_END";
 
   const watcherCopy = (() => {
@@ -89,7 +95,7 @@ export function Flip7Round({
   })();
 
   return (
-    <div className="mx-auto flex min-h-full max-w-md flex-col gap-3 p-3 pb-44">
+    <div className="mx-auto flex min-h-full max-w-md flex-col gap-3 p-3 pb-16">
       {/* Header */}
       <div className="card flex flex-col gap-1 py-3">
         <div className="flex items-center justify-between">
@@ -118,25 +124,34 @@ export function Flip7Round({
         </div>
       </div>
 
-      {/* Player rows */}
-      <ul className="flex flex-col gap-2">
+      {/* Sticky context line — visible whether scrolled up or down */}
+      <div className="sticky top-0 z-[5] -mx-3 border-b border-ink/10 bg-paper/95 px-3 py-1.5 text-xs text-ink/70 backdrop-blur">
+        <span className="truncate">{watcherCopy}</span>
+      </div>
+
+      {/* Player rows — focal player full, everyone else compact */}
+      <ul className="flex flex-col gap-1.5">
         {orderedPlayers.map((p) => {
           const hand = round.hands[p.id];
           if (!hand) return null;
-          const isCurrent =
-            awaiting.kind === "DECISION" && awaiting.playerId === p.id;
+          const isCurrent = awaiting.kind === "DECISION" && awaiting.playerId === p.id;
+          const isFocal = p.id === focalPlayerId;
+          const isMe = p.id === state.myId;
+          // Always expand the focal player and the viewer; everyone else compact.
+          const compact = !isFocal && !isMe;
           return (
-            <li key={p.id}>
+            <li key={p.id} ref={isFocal ? activeRowRef : undefined}>
               <PlayerRow
                 player={p}
                 hand={hand}
                 isCurrent={isCurrent}
-                isMe={p.id === state.myId}
+                isMe={isMe}
                 isTargetable={isTargetableForAction(p.id)}
                 onTarget={() =>
                   socket.emit("flip7:target", { targetPlayerId: p.id })
                 }
                 isForcedDrawer={!!forcedDrawerId && forcedDrawerId === p.id}
+                compact={compact}
               />
             </li>
           );
@@ -154,7 +169,7 @@ export function Flip7Round({
         </div>
       )}
 
-      {/* Action area */}
+      {/* Action area — sticky just above the chat tab */}
       {isRoundEnd ? (
         <div className="card flex flex-col items-center gap-1 py-4 text-center">
           <div className="text-sm font-semibold">Round complete</div>
@@ -163,7 +178,7 @@ export function Flip7Round({
           </div>
         </div>
       ) : isMyDecision ? (
-        <div className="sticky bottom-40 mt-1">
+        <div className="sticky bottom-12 mt-1">
           <div className="card flex flex-col gap-3 border-accent bg-accent/5 py-4">
             <div className="text-center text-sm font-semibold">
               YOUR TURN  ·  {myHand?.numbers.length ?? 0}/7 unique  ·  Hand{" "}
@@ -186,7 +201,7 @@ export function Flip7Round({
           </div>
         </div>
       ) : isMyTarget ? (
-        <div className="sticky bottom-40 mt-1">
+        <div className="sticky bottom-12 mt-1">
           <div className="card flex flex-col gap-2 border-accent bg-accent/5 py-3">
             <div className="text-center text-sm font-semibold">
               {awaiting.kind === "TARGET" && awaiting.cardKind === "FREEZE" && "You drew FREEZE — pick a target above"}
@@ -196,23 +211,15 @@ export function Flip7Round({
             <div className="text-center text-xs text-ink/60">Tap a highlighted player row</div>
           </div>
         </div>
-      ) : (
-        <div className="card flex flex-col items-center gap-1 py-3 text-center">
-          <div className="text-sm font-medium text-ink/70">{watcherCopy}</div>
-        </div>
-      )}
+      ) : null}
 
-      {/* Always-visible match chat at the bottom */}
-      <div className="fixed inset-x-0 bottom-0 z-10 mx-auto max-w-md border-t border-ink/10 bg-paper/95 px-3 pb-2 pt-2 backdrop-blur">
-        <ChatPanel
-          messages={round.chat}
-          socket={socket}
-          players={state.players}
-          hideHeader
-          listClassName="max-h-24 min-h-[2.5rem]"
-          emptyPlaceholder="Trash talk goes here…"
-        />
-      </div>
+      {/* Collapsible match chat */}
+      <ChatDrawer
+        messages={round.chat}
+        socket={socket}
+        players={state.players}
+        emptyPlaceholder="Trash talk goes here…"
+      />
     </div>
   );
 }
