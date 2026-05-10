@@ -21,6 +21,8 @@ import { TeekoBracket } from "./games/teeko/Bracket";
 import { TeekoChampion } from "./games/teeko/Champion";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { SoundToggle } from "./components/SoundToggle";
+import type { Bot } from "./playtest/bot";
+import { spawnBot } from "./playtest/bot";
 
 const STORAGE_KEY = "impromptser:credentials";
 
@@ -63,6 +65,21 @@ export default function App() {
   const [state, setState] = useState<RoomStatePublic | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(socket.connected);
+  const botsRef = useRef<Bot[]>([]);
+  const [botCount, setBotCount] = useState(0);
+
+  function addBot(roomCode: string) {
+    const idx = botsRef.current.length + 1;
+    const bot = spawnBot(roomCode, `Bot${idx}`);
+    botsRef.current.push(bot);
+    setBotCount(botsRef.current.length);
+  }
+
+  function clearBots() {
+    for (const b of botsRef.current) b.destroy();
+    botsRef.current = [];
+    setBotCount(0);
+  }
 
   useEffect(() => {
     function onConnect() {
@@ -107,6 +124,7 @@ export default function App() {
   }
 
   function leave() {
+    clearBots();
     saveCredentials(null);
     setCredentials(null);
     setState(null);
@@ -125,7 +143,14 @@ export default function App() {
       );
     }
     if (state.phase === "LOBBY") {
-      return <Lobby state={state} socket={socket} />;
+      return (
+        <Lobby
+          state={state}
+          socket={socket}
+          onAddBot={() => addBot(state.code)}
+          botCount={botCount}
+        />
+      );
     }
     if (state.gameType === "spyfall") {
       switch (state.phase) {
@@ -174,7 +199,7 @@ export default function App() {
       }
     }
     return null;
-  }, [credentials, state, socket]);
+  }, [credentials, state, socket, botCount]);
 
   return (
     <div className="min-h-full">

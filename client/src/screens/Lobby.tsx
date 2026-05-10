@@ -6,9 +6,13 @@ import { FLIP7_TARGET_SCORES, IMPOSTER_ROUND_OPTIONS } from "../../../shared/typ
 export function Lobby({
   state,
   socket,
+  onAddBot,
+  botCount = 0,
 }: {
   state: RoomStatePublic;
   socket: AppSocket;
+  onAddBot?: () => void;
+  botCount?: number;
 }) {
   const isHost = state.myId === state.hostId;
   const connected = state.players.filter((p) => p.connected);
@@ -337,6 +341,29 @@ export function Lobby({
       ) : (
         <div className="text-center text-sm text-ink/50">
           Waiting for the host to start…
+        </div>
+      )}
+
+      {import.meta.env.DEV && isHost && onAddBot && state.players.length < 10 && (
+        <div className="rounded-xl border border-dashed border-ink/20 bg-ink/5 p-3">
+          <div className="mb-2 text-xs font-bold uppercase tracking-wider text-ink/50">
+            Dev: bot players
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-ink/60">
+              {botCount} bot{botCount === 1 ? "" : "s"} active
+            </span>
+            <button
+              type="button"
+              onClick={onAddBot}
+              className="rounded-lg border border-ink/15 bg-surface px-3 py-1 text-xs font-medium text-ink/80 hover:border-accent/40"
+            >
+              + Add bot
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-ink/40">
+            Bots auto-play their turns. Hidden in production builds.
+          </p>
         </div>
       )}
     </div>
