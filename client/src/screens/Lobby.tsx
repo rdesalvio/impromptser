@@ -318,6 +318,11 @@ export function Lobby({
                     HOST
                   </span>
                 )}
+                {p.isSpectator && (
+                  <span className="rounded bg-ink/10 px-1.5 py-0.5 text-xs font-medium text-ink/60">
+                    SPECTATOR
+                  </span>
+                )}
                 {p.id === state.myId && (
                   <span className="text-xs text-ink/40">(you)</span>
                 )}

@@ -218,6 +218,11 @@ export default function App() {
           </button>
         </div>
       )}
+      {credentials && state && state.players.find((p) => p.id === state.myId)?.isSpectator && (
+        <div className="mx-auto mt-2 max-w-md rounded-xl bg-ink/5 px-3 py-2 text-center text-xs text-ink/70">
+          👁️ Spectating — you can chat but not play. You'll be a player in the next match.
+        </div>
+      )}
       {error && (
         <div className="mx-auto mt-2 max-w-md rounded-xl bg-danger/10 px-3 py-2 text-center text-sm text-danger">
           {error}

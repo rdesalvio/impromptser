@@ -129,16 +129,14 @@ export function Flip7Round({
         <span className="truncate">{watcherCopy}</span>
       </div>
 
-      {/* Player rows — focal player full, everyone else compact */}
-      <ul className="flex flex-col gap-1.5">
+      {/* Player rows — everyone's cards always visible */}
+      <ul className="flex flex-col gap-2">
         {orderedPlayers.map((p) => {
           const hand = round.hands[p.id];
           if (!hand) return null;
           const isCurrent = awaiting.kind === "DECISION" && awaiting.playerId === p.id;
           const isFocal = p.id === focalPlayerId;
           const isMe = p.id === state.myId;
-          // Always expand the focal player and the viewer; everyone else compact.
-          const compact = !isFocal && !isMe;
           return (
             <li key={p.id} ref={isFocal ? activeRowRef : undefined}>
               <PlayerRow
@@ -151,7 +149,6 @@ export function Flip7Round({
                   socket.emit("flip7:target", { targetPlayerId: p.id })
                 }
                 isForcedDrawer={!!forcedDrawerId && forcedDrawerId === p.id}
-                compact={compact}
               />
             </li>
           );

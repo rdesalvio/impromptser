@@ -14,8 +14,11 @@ export function TeekoWriting({
   const round = state.teekoRound!;
   const writing = round.writing!;
   const [text, setText] = useState("");
+  const me = state.players.find((p) => p.id === state.myId);
+  const isSpectator = me?.isSpectator ?? false;
 
   function submit() {
+    if (isSpectator) return;
     const t = text.trim();
     if (!t) return;
     socket.emit("teeko:submit-slogan", { text: t });
@@ -23,6 +26,26 @@ export function TeekoWriting({
   }
 
   const reachedTarget = writing.mySubmitted >= writing.target;
+
+  if (isSpectator) {
+    return (
+      <div className="mx-auto flex min-h-full max-w-md flex-col gap-3 p-4">
+        <div className="flex items-center justify-between pt-2">
+          <div className="text-xs font-bold uppercase tracking-wider text-ink/50">
+            Writing phase
+          </div>
+          <Timer endsAt={round.phaseEndsAt} />
+        </div>
+        <div className="card flex flex-col items-center gap-2 py-8 text-center">
+          <div className="text-3xl">👁️</div>
+          <div className="font-semibold">Spectating</div>
+          <div className="text-sm text-ink/60">
+            Players are writing slogans. You'll join in the next match.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col gap-3 p-4">

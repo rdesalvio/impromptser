@@ -13,13 +13,14 @@ export function SpyfallVoting({
   const round = state.spyfallRound!;
   const [pendingVote, setPendingVote] = useState<string | null>(null);
   const myConfirmedVote = round.votes[state.myId] ?? null;
+  const isSpectator = round.myRole === "SPECTATOR";
 
   useEffect(() => {
     if (pendingVote && myConfirmedVote === pendingVote) setPendingVote(null);
   }, [pendingVote, myConfirmedVote]);
 
   function castVote(targetPlayerId: string) {
-    if (targetPlayerId === state.myId) return;
+    if (isSpectator || targetPlayerId === state.myId) return;
     setPendingVote(targetPlayerId);
     socket.emit("vote:cast", { targetPlayerId });
   }
@@ -32,7 +33,7 @@ export function SpyfallVoting({
     state.players.map((p) => [p.id, p.name])
   );
   const effectiveVote = pendingVote ?? myConfirmedVote;
-  const totalVoters = state.players.filter((p) => p.connected).length;
+  const totalVoters = state.players.filter((p) => p.connected && !p.isSpectator).length;
   const totalVotesCast = Object.keys(round.votes).length;
 
   return (
@@ -46,7 +47,11 @@ export function SpyfallVoting({
 
       <div className="card text-center">
         <div className="text-xs uppercase tracking-widest text-ink/40">
-          {round.myRole === "SPY" ? "You are the spy" : `Location: ${round.myLocation}`}
+          {round.myRole === "SPECTATOR"
+            ? "Spectating"
+            : round.myRole === "SPY"
+              ? "You are the spy"
+              : `Location: ${round.myLocation}`}
         </div>
         <div className="mt-2 text-xs text-ink/50 tabular-nums">
           {totalVotesCast}/{totalVoters} voted
@@ -62,7 +67,7 @@ export function SpyfallVoting({
           return (
             <li key={p.id}>
               <button
-                disabled={isMe || !p.connected}
+                disabled={isMe || !p.connected || isSpectator}
                 onClick={() => castVote(p.id)}
                 className={[
                   "w-full rounded-2xl border px-4 py-3 text-left transition",

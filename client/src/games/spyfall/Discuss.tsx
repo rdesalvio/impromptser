@@ -13,6 +13,7 @@ export function SpyfallDiscuss({
 }) {
   const round = state.spyfallRound!;
   const isSpy = round.myRole === "SPY";
+  const isSpectator = round.myRole === "SPECTATOR";
   const [showLocations, setShowLocations] = useState(false);
 
   function callVote() {
@@ -41,7 +42,9 @@ export function SpyfallDiscuss({
           <div className="text-[10px] uppercase tracking-widest text-ink/40">
             Your card
           </div>
-          {isSpy ? (
+          {isSpectator ? (
+            <div className="text-base font-semibold text-ink/60">Spectator</div>
+          ) : isSpy ? (
             <div className="text-base font-bold text-danger">SPY</div>
           ) : (
             <div className="text-base font-semibold">
@@ -89,9 +92,11 @@ export function SpyfallDiscuss({
         inputPlaceholder="Ask a question…"
       />
 
-      <button className="btn-primary" onClick={callVote}>
-        Call vote
-      </button>
+      {!isSpectator && (
+        <button className="btn-primary" onClick={callVote}>
+          Call vote
+        </button>
+      )}
     </div>
   );
 }

@@ -113,34 +113,47 @@ export abstract class RoomBase {
   }
 
   addPlayer(playerId: PlayerId, name: string): { ok: boolean; error?: string } {
-    if (this.phase !== "LOBBY") {
-      const existing = this.players.get(playerId);
-      if (existing) {
-        existing.connected = true;
-        this.emitChange();
-        return { ok: true };
-      }
-      return { ok: false, error: "Game already in progress" };
+    // Existing player reconnecting (any phase).
+    if (this.players.has(playerId)) {
+      const p = this.players.get(playerId)!;
+      p.connected = true;
+      if (this.phase === "LOBBY") p.name = sanitizeName(name);
+      this.emitChange();
+      return { ok: true };
     }
     if (this.players.size >= MAX_PLAYERS) {
       return { ok: false, error: "Room is full" };
     }
-    if (this.players.has(playerId)) {
-      const p = this.players.get(playerId)!;
-      p.connected = true;
-      p.name = sanitizeName(name);
-      this.emitChange();
-      return { ok: true };
-    }
+    // Mid-game new joiner → spectator. In LOBBY → regular player.
+    const isSpectator = this.phase !== "LOBBY";
     this.players.set(playerId, {
       id: playerId,
       name: sanitizeName(name),
       score: 0,
       connected: true,
       isHost: playerId === this.hostId,
+      isSpectator,
     });
     this.emitChange();
     return { ok: true };
+  }
+
+  /** Players who are connected and not spectating — the game-relevant population. */
+  protected playingPlayers(): Player[] {
+    return [...this.players.values()].filter(
+      (p) => p.connected && !p.isSpectator
+    );
+  }
+
+  /** True iff this player is currently treated as an active participant. */
+  protected isPlaying(playerId: PlayerId): boolean {
+    const p = this.players.get(playerId);
+    return !!p && p.connected && !p.isSpectator;
+  }
+
+  /** Reset all spectator flags — call when transitioning back to LOBBY. */
+  protected promoteSpectators(): void {
+    for (const p of this.players.values()) p.isSpectator = false;
   }
 
   reconnect(playerId: PlayerId): { ok: boolean; error?: string } {
@@ -290,6 +303,7 @@ export class ImposterRoom extends RoomBase {
     this.recentImposterIds = [];
     this.gameWinnerId = undefined;
     this.round = undefined;
+    this.promoteSpectators();
     this.phase = "LOBBY";
     this.clearTimer();
     this.emitChange();
@@ -297,13 +311,13 @@ export class ImposterRoom extends RoomBase {
   }
 
   private beginRound() {
-    const connected = [...this.players.values()].filter((p) => p.connected);
+    const playing = this.playingPlayers();
     // Prefer players who haven't been imposter recently.
-    const eligible = connected.filter((p) => !this.recentImposterIds.includes(p.id));
-    const pool = eligible.length > 0 ? eligible : connected;
+    const eligible = playing.filter((p) => !this.recentImposterIds.includes(p.id));
+    const pool = eligible.length > 0 ? eligible : playing;
     const imposter = pool[Math.floor(Math.random() * pool.length)];
     this.recentImposterIds.push(imposter.id);
-    const window = Math.max(connected.length - 1, 1);
+    const window = Math.max(playing.length - 1, 1);
     while (this.recentImposterIds.length > window) this.recentImposterIds.shift();
 
     const prompt = pickRandomPromptExcluding(this.usedPromptIds);
@@ -323,6 +337,7 @@ export class ImposterRoom extends RoomBase {
 
   override submitAnswer(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
     if (!this.round) return { ok: false, error: "No active round" };
+    if (!this.isPlaying(playerId)) return { ok: false, error: "Spectators can't answer" };
     const trimmed = sanitizeText(text, MAX_ANSWER_LEN).trim();
     if (!trimmed) return { ok: false, error: "Answer cannot be empty" };
     const normalized = trimmed.toLowerCase();
@@ -337,8 +352,8 @@ export class ImposterRoom extends RoomBase {
       if (this.round.answers.has(playerId)) return { ok: false, error: "Already answered" };
       this.round.answers.set(playerId, trimmed);
       this.emitChange();
-      const realPlayers = [...this.players.values()].filter(
-        (p) => p.connected && p.id !== this.round!.imposterId
+      const realPlayers = this.playingPlayers().filter(
+        (p) => p.id !== this.round!.imposterId
       );
       if (this.round.answers.size >= realPlayers.length) {
         this.endAnsweringPhase();
@@ -377,7 +392,7 @@ export class ImposterRoom extends RoomBase {
     if (this.phase !== "VOTING" || !this.round) {
       return { ok: false, error: "Not voting right now" };
     }
-    if (!this.players.has(voterId)) return { ok: false, error: "Not in this room" };
+    if (!this.isPlaying(voterId)) return { ok: false, error: "Spectators can't vote" };
     if (!this.round.answers.has(targetPlayerId)) {
       return { ok: false, error: "Invalid vote target" };
     }
@@ -386,8 +401,7 @@ export class ImposterRoom extends RoomBase {
     }
     this.round.votes.set(voterId, targetPlayerId);
     this.emitChange();
-    const connected = [...this.players.values()].filter((p) => p.connected);
-    if (this.round.votes.size >= connected.length) this.tallyVotes();
+    if (this.round.votes.size >= this.playingPlayers().length) this.tallyVotes();
     return { ok: true };
   }
 
@@ -432,6 +446,7 @@ export class ImposterRoom extends RoomBase {
     this.round.mostVotedAnswerOwnerId = topOwners.length === 1 ? topOwners[0] : undefined;
     if (this.round.winner === "PLAYERS") {
       for (const p of this.players.values()) {
+        if (p.isSpectator) continue;
         if (p.id !== this.round.imposterId) p.score += 1;
       }
     } else {
@@ -560,13 +575,13 @@ export class SpyfallRoom extends RoomBase {
   }
 
   private beginRound() {
-    const connected = [...this.players.values()].filter((p) => p.connected);
-    const spy = connected[Math.floor(Math.random() * connected.length)];
+    const playing = this.playingPlayers();
+    const spy = playing[Math.floor(Math.random() * playing.length)];
     const location = pickRandomLocation();
     const rolesByPlayer = new Map<PlayerId, string>();
     const roles = shuffle(location.roles);
     let i = 0;
-    for (const p of connected) {
+    for (const p of playing) {
       if (p.id === spy.id) continue;
       rolesByPlayer.set(p.id, roles[i % roles.length]);
       i++;
@@ -598,7 +613,7 @@ export class SpyfallRoom extends RoomBase {
     if (this.phase !== "DISCUSS") {
       return { ok: false, error: "Can only call vote during discussion" };
     }
-    if (!this.players.has(playerId)) return { ok: false, error: "Not in this room" };
+    if (!this.isPlaying(playerId)) return { ok: false, error: "Spectators can't call a vote" };
     this.startVotingPhase();
     return { ok: true };
   }
@@ -607,13 +622,12 @@ export class SpyfallRoom extends RoomBase {
     if (this.phase !== "VOTING" || !this.round) {
       return { ok: false, error: "Not voting right now" };
     }
-    if (!this.players.has(voterId)) return { ok: false, error: "Not in this room" };
+    if (!this.isPlaying(voterId)) return { ok: false, error: "Spectators can't vote" };
     if (!this.players.has(targetPlayerId)) return { ok: false, error: "Invalid vote target" };
     if (voterId === targetPlayerId) return { ok: false, error: "Cannot vote for yourself" };
     this.round.votes.set(voterId, targetPlayerId);
     this.emitChange();
-    const connected = [...this.players.values()].filter((p) => p.connected);
-    if (this.round.votes.size >= connected.length) this.tallyVotes();
+    if (this.round.votes.size >= this.playingPlayers().length) this.tallyVotes();
     return { ok: true };
   }
 
@@ -660,6 +674,7 @@ export class SpyfallRoom extends RoomBase {
     this.round.mostVotedPlayerId = topPlayers.length === 1 ? topPlayers[0] : undefined;
     if (this.round.winner === "PLAYERS") {
       for (const p of this.players.values()) {
+        if (p.isSpectator) continue;
         if (p.id !== this.round.spyId) p.score += 1;
       }
     } else {
@@ -678,11 +693,16 @@ export class SpyfallRoom extends RoomBase {
     let spyfallRound: SpyfallRoundPublic | undefined;
     if (this.round) {
       const isSpy = viewerId === this.round.spyId;
+      const viewer = this.players.get(viewerId);
+      const isSpectator = !!viewer?.isSpectator;
       const reveal = this.phase === "RESULTS";
+      // Spectators see neither the location nor the spy role; they're just observers.
+      // Location is revealed to everyone in RESULTS via `actualLocation`.
       spyfallRound = {
-        myRole: isSpy ? "SPY" : "PLAYER",
-        myLocation: isSpy ? undefined : this.round.location,
-        myLocationRole: isSpy ? undefined : this.round.rolesByPlayer.get(viewerId),
+        myRole: isSpectator ? "SPECTATOR" : isSpy ? "SPY" : "PLAYER",
+        myLocation: isSpectator || isSpy ? undefined : this.round.location,
+        myLocationRole:
+          isSpectator || isSpy ? undefined : this.round.rolesByPlayer.get(viewerId),
         allLocations: ALL_LOCATION_NAMES,
         votes:
           this.phase === "VOTING" || this.phase === "RESULTS"
@@ -785,6 +805,7 @@ export class Flip7Room extends RoomBase {
     this.round = undefined;
     this.gameWinnerId = undefined;
     this.chat = [];
+    this.promoteSpectators();
     this.phase = "LOBBY";
     this.clearTimer();
     this.emitChange();
@@ -860,13 +881,13 @@ export class Flip7Room extends RoomBase {
   }
 
   private beginRound(roundNumber: number) {
-    const connected = [...this.players.values()].filter((p) => p.connected);
-    const turnOrder = connected.map((p) => p.id);
+    const playing = this.playingPlayers();
+    const turnOrder = playing.map((p) => p.id);
     shuffleInPlace(turnOrder);
     const deck = buildDeck();
     shuffleInPlace(deck);
     const hands = new Map<PlayerId, Flip7Hand>();
-    for (const p of connected) {
+    for (const p of playing) {
       hands.set(p.id, {
         numbers: [],
         modifiers: [],
@@ -1447,7 +1468,7 @@ export class TeekoRoom extends RoomBase {
   submitDrawing(playerId: PlayerId, strokesInput: unknown): { ok: boolean; error?: string } {
     if (!this.round) return { ok: false, error: "No active round" };
     if (this.phase !== "DRAWING") return { ok: false, error: "Not the drawing phase" };
-    if (!this.players.has(playerId)) return { ok: false, error: "Not in this room" };
+    if (!this.isPlaying(playerId)) return { ok: false, error: "Spectators can't draw" };
     const strokes = sanitizeStrokes(strokesInput);
     if (!strokes || strokes.length === 0) return { ok: false, error: "Invalid drawing" };
     const id = randomUUID();
@@ -1462,7 +1483,7 @@ export class TeekoRoom extends RoomBase {
   submitSlogan(playerId: PlayerId, text: string): { ok: boolean; error?: string } {
     if (!this.round) return { ok: false, error: "No active round" };
     if (this.phase !== "WRITING") return { ok: false, error: "Not the writing phase" };
-    if (!this.players.has(playerId)) return { ok: false, error: "Not in this room" };
+    if (!this.isPlaying(playerId)) return { ok: false, error: "Spectators can't write slogans" };
     const trimmed = sanitizeText(text, MAX_SLOGAN_LEN).trim();
     if (!trimmed) return { ok: false, error: "Slogan cannot be empty" };
     const id = randomUUID();
@@ -1520,7 +1541,7 @@ export class TeekoRoom extends RoomBase {
   vote(playerId: PlayerId, side: "LEFT" | "RIGHT"): { ok: boolean; error?: string } {
     if (!this.round?.bracket) return { ok: false, error: "No bracket" };
     if (this.phase !== "BRACKET") return { ok: false, error: "Not voting right now" };
-    if (!this.players.has(playerId)) return { ok: false, error: "Not in this room" };
+    if (!this.isPlaying(playerId)) return { ok: false, error: "Spectators can't vote" };
     const matchup = this.currentMatchup();
     if (!matchup || matchup.revealed || matchup.byeShirtId) {
       return { ok: false, error: "Not voting on this matchup" };
@@ -1558,6 +1579,7 @@ export class TeekoRoom extends RoomBase {
 
   private canVote(playerId: PlayerId, matchup: TeekoMatchup): boolean {
     if (matchup.byeShirtId) return false;
+    if (!this.isPlaying(playerId)) return false;
     const leftMine = matchup.leftShirtId
       ? this.didContribute(playerId, matchup.leftShirtId)
       : true;
@@ -1571,6 +1593,7 @@ export class TeekoRoom extends RoomBase {
     if (by !== this.hostId) return { ok: false, error: "Only the host can reset" };
     if (this.phase !== "CHAMPION") return { ok: false, error: "Game still in progress" };
     this.round = undefined;
+    this.promoteSpectators();
     this.phase = "LOBBY";
     this.clearTimer();
     this.emitChange();

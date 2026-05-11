@@ -4,6 +4,7 @@ import { Timer } from "../../components/Timer";
 export function SpyfallReveal({ state }: { state: RoomStatePublic }) {
   const round = state.spyfallRound!;
   const isSpy = round.myRole === "SPY";
+  const isSpectator = round.myRole === "SPECTATOR";
 
   return (
     <div className="mx-auto flex min-h-full max-w-md flex-col gap-6 p-6">
@@ -14,7 +15,16 @@ export function SpyfallReveal({ state }: { state: RoomStatePublic }) {
         <Timer endsAt={round.phaseEndsAt} />
       </div>
 
-      {isSpy ? (
+      {isSpectator ? (
+        <div className="card flex flex-col items-center gap-3 py-10 text-center">
+          <div className="text-6xl">👁️</div>
+          <div className="text-2xl font-black">Spectating</div>
+          <div className="text-sm text-ink/60">
+            You joined mid-game — sit back, watch, and chat. You'll be
+            playing in the next match.
+          </div>
+        </div>
+      ) : isSpy ? (
         <div className="card flex flex-col items-center gap-3 border-danger/40 bg-danger/5 py-10 text-center">
           <div className="text-6xl">🕵️</div>
           <div className="text-3xl font-black text-danger">YOU ARE THE SPY</div>

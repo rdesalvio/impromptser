@@ -14,6 +14,28 @@ export function Answering({
   const [text, setText] = useState("");
   const round = state.imposterRound!;
   const isImposter = round.myRole === "IMPOSTER";
+  const me = state.players.find((p) => p.id === state.myId);
+  const isSpectator = me?.isSpectator ?? false;
+
+  if (isSpectator) {
+    return (
+      <div className="mx-auto flex min-h-full max-w-md flex-col gap-6 p-6">
+        <div className="flex items-center justify-between pt-4">
+          <div className="text-xs font-bold uppercase tracking-wider text-ink/50">
+            Round {round.roundNumber}/{round.totalRounds} · Answering phase
+          </div>
+          <Timer endsAt={round.phaseEndsAt} />
+        </div>
+        <div className="card flex flex-col gap-3 py-6 text-center">
+          <div className="text-3xl">👁️</div>
+          <div className="font-semibold">Spectating</div>
+          <div className="text-sm text-ink/60">
+            Players are answering the prompt. Waiting for voting to begin…
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isImposter) {
     return (

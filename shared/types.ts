@@ -26,6 +26,7 @@ export interface Player {
   score: number;
   connected: boolean;
   isHost: boolean;
+  isSpectator: boolean;
 }
 
 export interface ChatMsg {
@@ -60,7 +61,7 @@ export interface ImposterRoundPublic {
 }
 
 export interface SpyfallRoundPublic {
-  myRole: "SPY" | "PLAYER";
+  myRole: "SPY" | "PLAYER" | "SPECTATOR";
   myLocation?: string;
   myLocationRole?: string;
   allLocations: string[];

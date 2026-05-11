@@ -13,6 +13,8 @@ export function Voting({
 }) {
   const round = state.imposterRound!;
   const [pendingVote, setPendingVote] = useState<string | null>(null);
+  const me = state.players.find((p) => p.id === state.myId);
+  const isSpectator = me?.isSpectator ?? false;
 
   const myConfirmedVote = round.votes[state.myId] ?? null;
   useEffect(() => {
@@ -20,7 +22,7 @@ export function Voting({
   }, [pendingVote, myConfirmedVote]);
 
   function castVote(targetPlayerId: string) {
-    if (targetPlayerId === state.myId) return;
+    if (isSpectator || targetPlayerId === state.myId) return;
     setPendingVote(targetPlayerId);
     socket.emit("vote:cast", { targetPlayerId });
   }
@@ -34,7 +36,7 @@ export function Voting({
     (votersByOwner[targetId] ??= []).push(voterId);
   }
   const effectiveVote = pendingVote ?? myConfirmedVote;
-  const totalVoters = state.players.filter((p) => p.connected).length;
+  const totalVoters = state.players.filter((p) => p.connected && !p.isSpectator).length;
   const totalVotesCast = Object.keys(round.votes).length;
 
   return (
@@ -67,7 +69,7 @@ export function Voting({
           return (
             <li key={a.ownerId}>
               <button
-                disabled={isMine}
+                disabled={isMine || isSpectator}
                 onClick={() => castVote(a.ownerId)}
                 className={[
                   "w-full rounded-2xl border px-4 py-3 text-left transition",

@@ -14,8 +14,11 @@ export function TeekoBracket({
   const bracket = round.bracket!;
   const matchup = bracket.matchup;
 
+  const me = state.players.find((p) => p.id === state.myId);
+  const isSpectator = me?.isSpectator ?? false;
+
   function vote(side: "LEFT" | "RIGHT") {
-    if (matchup.revealed) return;
+    if (matchup.revealed || isSpectator) return;
     socket.emit("teeko:vote", { side });
   }
 
@@ -54,6 +57,7 @@ export function TeekoBracket({
           isWinner={matchup.winner === "LEFT"}
           isMyVote={matchup.myVote === "LEFT"}
           isMine={!!matchup.iContributedLeft}
+          isSpectator={isSpectator}
           voteCount={matchup.leftVotes}
           onVote={() => vote("LEFT")}
         />
@@ -71,6 +75,7 @@ export function TeekoBracket({
           isWinner={matchup.winner === "RIGHT"}
           isMyVote={matchup.myVote === "RIGHT"}
           isMine={!!matchup.iContributedRight}
+          isSpectator={isSpectator}
           voteCount={matchup.rightVotes}
           onVote={() => vote("RIGHT")}
         />
@@ -139,6 +144,7 @@ function ShirtChoice({
   isWinner,
   isMyVote,
   isMine,
+  isSpectator,
   voteCount,
   onVote,
 }: {
@@ -148,6 +154,7 @@ function ShirtChoice({
   isWinner: boolean;
   isMyVote: boolean;
   isMine: boolean;
+  isSpectator: boolean;
   voteCount?: number;
   onVote: () => void;
 }) {
@@ -180,7 +187,7 @@ function ShirtChoice({
       <div className="rounded-lg bg-ink/5 px-3 py-2 text-center text-base font-semibold">
         "{shirt.slogan.text}"
       </div>
-      {!revealed && (
+      {!revealed && !isSpectator && (
         <button
           className={isMyVote ? "btn-primary" : "btn-secondary"}
           disabled={isMine}
